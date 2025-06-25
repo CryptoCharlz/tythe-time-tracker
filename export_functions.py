@@ -284,7 +284,7 @@ def export_to_excel(entries, filename="timesheet_export.xlsx", start_date=None, 
     return filename
 
 def export_to_pdf(entries, filename="timesheet_export.pdf"):
-    """Export timesheet data to PDF with staff summaries"""
+    """Export timesheet data to PDF with staff summaries and individual shifts grouped under each staff member"""
     if not entries:
         return None
     
@@ -301,7 +301,7 @@ def export_to_pdf(entries, filename="timesheet_export.pdf"):
         spaceAfter=30,
         alignment=1  # Center
     )
-    title = Paragraph("The Tythe Barn - Staff Hours Summary", title_style)
+    title = Paragraph("The Tythe Barn - Staff Hours & Shifts", title_style)
     story.append(title)
     story.append(Spacer(1, 20))
     
@@ -314,45 +314,79 @@ def export_to_pdf(entries, filename="timesheet_export.pdf"):
     <b>Overall Summary:</b><br/>
     Total Hours: {overall_summary['total_hours']}<br/>
     Total Shifts: {overall_summary['total_shifts']}<br/>
-    Unique Employees: {overall_summary['unique_employees']}
+    Unique Employees: {overall_summary['unique_employees']}<br/>
     """
     summary_para = Paragraph(summary_text, styles['Normal'])
     story.append(summary_para)
     story.append(Spacer(1, 20))
     
-    # Staff summary table
-    story.append(Paragraph("<b>Staff Hours by Pay Rate Type:</b>", styles['Heading2']))
-    story.append(Spacer(1, 10))
+    # Sort entries by employee and clock_in
+    entries_sorted = sorted(entries, key=lambda e: (e[1].strip().lower(), e[2]))
     
-    # Prepare table data
-    table_data = [['Staff Name', 'Standard Hours', 'Enhanced Hours', 'Supervisor Hours', 'Total Hours', 'Total Shifts']]
-    
+    # For each staff member, show totals and then their shifts
     for employee, data in staff_summary.items():
-        row = [
-            employee,
-            str(data['Standard']),
-            str(data['Enhanced']),
-            str(data['Supervisor']),
-            str(data['total_hours']),
-            str(data['total_shifts'])
-        ]
-        table_data.append(row)
-    
-    # Create table
-    table = Table(table_data)
-    table.setStyle(TableStyle([
-        ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
-        ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
-        ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
-        ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
-        ('FONTSIZE', (0, 0), (-1, 0), 12),
-        ('BOTTOMPADDING', (0, 0), (-1, 0), 12),
-        ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
-        ('GRID', (0, 0), (-1, -1), 1, colors.black),
-        ('FONTSIZE', (0, 1), (-1, -1), 10),
-    ]))
-    
-    story.append(table)
+        # Staff summary row
+        staff_title = Paragraph(f"<b>{employee} - TOTALS</b>", styles['Heading3'])
+        story.append(staff_title)
+        staff_table = Table([["Standard Hours", "Enhanced Hours", "Supervisor Hours", "Total Hours", "Total Shifts"],
+                             [str(data['Standard']), str(data['Enhanced']), str(data['Supervisor']), str(data['total_hours']), str(data['total_shifts'])]])
+        staff_table.setStyle(TableStyle([
+            ('BACKGROUND', (0, 0), (-1, 0), colors.grey),
+            ('TEXTCOLOR', (0, 0), (-1, 0), colors.whitesmoke),
+            ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+            ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+            ('FONTSIZE', (0, 0), (-1, 0), 11),
+            ('BOTTOMPADDING', (0, 0), (-1, 0), 8),
+            ('BACKGROUND', (0, 1), (-1, -1), colors.beige),
+            ('GRID', (0, 0), (-1, -1), 1, colors.black),
+            ('FONTSIZE', (0, 1), (-1, -1), 10),
+        ]))
+        story.append(staff_table)
+        story.append(Spacer(1, 8))
+        
+        # Individual shifts for this staff member
+        shift_rows = [["Date", "Clock-In", "Clock-Out", "Standard", "Enhanced", "Supervisor", "Total", "Type"]]
+        for entry in entries_sorted:
+            entry_id, emp, clock_in, clock_out, pay_rate_type, created_at = entry
+            if emp.strip().lower() == employee.strip().lower():
+                is_supervisor = (pay_rate_type == 'Supervisor')
+                split = split_shift_by_rate(clock_in, clock_out, is_supervisor)
+                if is_supervisor:
+                    shift_display = f"Supervisor ({split['Supervisor']}h)"
+                elif split['Standard'] > 0 and split['Enhanced'] > 0:
+                    shift_display = f"Mixed: {split['Standard']}h Std, {split['Enhanced']}h Enh"
+                elif split['Enhanced'] > 0:
+                    shift_display = f"Enhanced ({split['Enhanced']}h)"
+                else:
+                    shift_display = f"Standard ({split['Standard']}h)"
+                shift_rows.append([
+                    clock_in.strftime('%Y-%m-%d'),
+                    clock_in.strftime('%H:%M'),
+                    clock_out.strftime('%H:%M') if clock_out else 'In Progress',
+                    str(split['Standard']),
+                    str(split['Enhanced']),
+                    str(split['Supervisor']),
+                    str(sum(split.values())),
+                    shift_display
+                ])
+        if len(shift_rows) > 1:
+            shift_table = Table(shift_rows)
+            shift_table.setStyle(TableStyle([
+                ('BACKGROUND', (0, 0), (-1, 0), colors.lightgrey),
+                ('TEXTCOLOR', (0, 0), (-1, 0), colors.black),
+                ('ALIGN', (0, 0), (-1, -1), 'CENTER'),
+                ('FONTNAME', (0, 0), (-1, 0), 'Helvetica-Bold'),
+                ('FONTSIZE', (0, 0), (-1, 0), 10),
+                ('BOTTOMPADDING', (0, 0), (-1, 0), 6),
+                ('BACKGROUND', (0, 1), (-1, -1), colors.whitesmoke),
+                ('GRID', (0, 0), (-1, -1), 1, colors.black),
+                ('FONTSIZE', (0, 1), (-1, -1), 9),
+            ]))
+            story.append(shift_table)
+            story.append(Spacer(1, 16))
+        else:
+            story.append(Paragraph("No shifts for this period.", styles['Normal']))
+            story.append(Spacer(1, 16))
     
     # Build PDF
     doc.build(story)
