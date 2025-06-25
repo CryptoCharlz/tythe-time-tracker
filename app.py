@@ -428,6 +428,10 @@ def main():
     elif page == "Manager Dashboard":
         show_manager_dashboard()
 
+    # Add VERSION constant and display it in the top-right of the dashboard (sidebar)
+    VERSION = "v1.0.0"
+    st.sidebar.markdown(f"<div style='text-align:right; color: #888; font-size: 0.9em;'>Version: {VERSION}</div>", unsafe_allow_html=True)
+
 def show_employee_interface():
     """Employee clock in/out interface"""
     st.header("👤 Employee Clock In/Out")
@@ -818,6 +822,35 @@ def show_manager_dashboard():
         st.subheader("All Time Entries (Grouped)")
         entries = get_all_timesheets()
         if entries:
+            # Quick Export section
+            st.markdown("### Quick Export")
+            col1, col2 = st.columns(2)
+            with col1:
+                if st.button("📊 Export All to Excel", key="quick_excel_grouped"):
+                    from export_functions import export_to_excel
+                    filename = f"all_timesheets_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+                    export_to_excel(entries, filename, None, None)
+                    with open(filename, "rb") as f:
+                        st.download_button(
+                            label="📥 Download Excel File",
+                            data=f.read(),
+                            file_name=filename,
+                            mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                        )
+                    os.remove(filename)
+            with col2:
+                if st.button("📄 Export All to PDF", key="quick_pdf_grouped"):
+                    from export_functions import export_to_pdf
+                    filename = f"all_timesheets_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+                    export_to_pdf(entries, filename)
+                    with open(filename, "rb") as f:
+                        st.download_button(
+                            label="📥 Download PDF File",
+                            data=f.read(),
+                            file_name=filename,
+                            mime="application/pdf"
+                        )
+                    os.remove(filename)
             # Group by staff
             from collections import defaultdict
             staff_shifts = defaultdict(list)
