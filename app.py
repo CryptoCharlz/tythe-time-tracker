@@ -1,16 +1,46 @@
 import streamlit as st
 import psycopg2
 import os
-from datetime import datetime, date
+from datetime import datetime, date, timezone, timedelta
 import uuid
 from dotenv import load_dotenv
 from export_functions import (
     get_date_range, get_timesheet_data, export_to_excel, 
-    export_to_pdf, get_download_link, calculate_summary
+    export_to_pdf, get_download_link, calculate_summary, split_shift_by_rate
 )
 
 # Load environment variables
 load_dotenv()
+
+# Timezone handling
+def get_bst_time(utc_time=None):
+    """Convert UTC time to BST (British Summer Time)"""
+    if utc_time is None:
+        utc_time = datetime.now(timezone.utc)
+    
+    # BST is UTC+1, but we need to handle DST properly
+    # For simplicity, we'll use UTC+1 for BST (this covers most of the year)
+    # In production, you might want to use pytz for more accurate DST handling
+    bst_offset = timedelta(hours=1)
+    bst_time = utc_time + bst_offset
+    
+    return bst_time
+
+def is_bst_enhanced_hours(clock_in_time):
+    """Check if clock-in time is during enhanced hours in BST"""
+    # Convert to BST if it's UTC
+    if clock_in_time.tzinfo is None:
+        # Assume it's UTC if no timezone info
+        clock_in_time = clock_in_time.replace(tzinfo=timezone.utc)
+    
+    bst_time = get_bst_time(clock_in_time)
+    hour = bst_time.hour
+    
+    # Enhanced rate: 7:00 PM (19:00) to 4:00 AM (04:00) in BST
+    if hour >= 19 or hour < 4:
+        return True
+    else:
+        return False
 
 # Page configuration
 st.set_page_config(
@@ -98,7 +128,8 @@ def clock_in(employee_name, is_supervisor=False):
             return False, f"{employee_name} already has an open shift"
         
         # Determine pay rate type
-        pay_rate_type = determine_pay_rate_type(is_supervisor)
+        current_time = datetime.now(timezone.utc)
+        pay_rate_type = determine_pay_rate_type(is_supervisor, current_time)
         
         # Insert new clock-in record
         cursor.execute("""
@@ -237,12 +268,10 @@ def determine_pay_rate_type(is_supervisor, clock_in_time=None):
         return "Supervisor"
     
     if clock_in_time is None:
-        clock_in_time = datetime.now()
+        clock_in_time = datetime.now(timezone.utc)
     
-    hour = clock_in_time.hour
-    
-    # Enhanced rate: 7:00 PM (19:00) to 4:00 AM (04:00)
-    if hour >= 19 or hour < 4:
+    # Check if it's enhanced hours in BST
+    if is_bst_enhanced_hours(clock_in_time):
         return "Enhanced"
     else:
         return "Standard"
@@ -258,11 +287,13 @@ def add_shift_manually(employee_name, clock_in_date, clock_in_time, clock_out_da
         
         # Combine date and time for clock-in
         clock_in_datetime = datetime.combine(clock_in_date, clock_in_time)
+        clock_in_datetime = clock_in_datetime - timedelta(hours=1)
         
         # Combine date and time for clock-out (if provided)
         clock_out_datetime = None
         if clock_out_date and clock_out_time:
             clock_out_datetime = datetime.combine(clock_out_date, clock_out_time)
+            clock_out_datetime = clock_out_datetime - timedelta(hours=1)
         
         # Determine pay rate type
         if pay_rate_override:
@@ -299,11 +330,13 @@ def edit_shift(entry_id, employee_name, clock_in_date, clock_in_time, clock_out_
         
         # Combine date and time for clock-in
         clock_in_datetime = datetime.combine(clock_in_date, clock_in_time)
+        clock_in_datetime = clock_in_datetime - timedelta(hours=1)
         
         # Combine date and time for clock-out (if provided)
         clock_out_datetime = None
         if clock_out_date and clock_out_time:
             clock_out_datetime = datetime.combine(clock_out_date, clock_out_time)
+            clock_out_datetime = clock_out_datetime - timedelta(hours=1)
         
         # Determine pay rate type
         if pay_rate_override:
@@ -599,8 +632,9 @@ def show_export_interface():
             
             # Calculate summary
             summary = calculate_summary(entries)
+            staff_summary = summary.get('staff_summary', {})
             
-            # Display summary
+            # Display overall summary
             col1, col2, col3 = st.columns(3)
             with col1:
                 st.metric("Total Hours", f"{summary['total_hours']}")
@@ -609,26 +643,46 @@ def show_export_interface():
             with col3:
                 st.metric("Unique Employees", f"{summary['unique_employees']}")
             
-            # Preview data
-            st.subheader("📊 Data Preview")
-            preview_data = []
-            for entry in entries[:10]:  # Show first 10 entries
-                entry_id, emp, clock_in, clock_out, pay_rate_type, created_at = entry
-                hours = calculate_hours(clock_in, clock_out)
-                preview_data.append({
-                    "Employee": emp,
-                    "Date": clock_in.strftime('%Y-%m-%d'),
-                    "Clock-In": clock_in.strftime('%H:%M:%S'),
-                    "Clock-Out": clock_out.strftime('%H:%M:%S') if clock_out else "In Progress",
-                    "Hours": hours,
-                    "Pay Rate": pay_rate_type,
-                    "Supervisor": "Yes" if pay_rate_type == "Supervisor" else "No"
-                })
-            
-            st.dataframe(preview_data, use_container_width=True)
-            
-            if len(entries) > 10:
-                st.info(f"Showing first 10 of {len(entries)} entries")
+            # Preview staff summary data
+            st.subheader("📊 Staff Hours Summary")
+            if staff_summary:
+                preview_data = []
+                for employee, data in staff_summary.items():
+                    preview_data.append({
+                        "Staff Name": employee,
+                        "Standard Hours": data['Standard'],
+                        "Enhanced Hours": data['Enhanced'],
+                        "Supervisor Hours": data['Supervisor'],
+                        "Total Hours": data['total_hours'],
+                        "Total Shifts": data['total_shifts']
+                    })
+                
+                st.dataframe(preview_data, use_container_width=True)
+                
+                # Show detailed shifts in expander
+                with st.expander("📋 View Individual Shifts", expanded=False):
+                    detailed_data = []
+                    for entry in entries[:20]:  # Show first 20 entries
+                        entry_id, emp, clock_in, clock_out, pay_rate_type, created_at = entry
+                        is_supervisor = (pay_rate_type == 'Supervisor')
+                        split = split_shift_by_rate(clock_in, clock_out, is_supervisor)
+                        detailed_data.append({
+                            "Employee": emp,
+                            "Date": clock_in.strftime('%Y-%m-%d'),
+                            "Clock-In": clock_in.strftime('%H:%M:%S'),
+                            "Clock-Out": clock_out.strftime('%H:%M:%S') if clock_out else "In Progress",
+                            "Standard Hours": split['Standard'],
+                            "Enhanced Hours": split['Enhanced'],
+                            "Supervisor Hours": split['Supervisor'],
+                            "Total Hours": sum(split.values()),
+                            "Pay Rate": pay_rate_type,
+                            "Supervisor": "Yes" if pay_rate_type == "Supervisor" else "No"
+                        })
+                    st.dataframe(detailed_data, use_container_width=True)
+                    if len(entries) > 20:
+                        st.info(f"Showing first 20 of {len(entries)} individual shifts")
+            else:
+                st.info("No staff summary data available")
             
             # Export buttons
             st.markdown("---")

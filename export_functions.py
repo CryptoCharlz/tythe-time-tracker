@@ -1,6 +1,6 @@
 import pandas as pd
 import streamlit as st
-from datetime import datetime, timedelta
+from datetime import datetime, timedelta, timezone, time as dtime
 from reportlab.lib import colors
 from reportlab.lib.pagesizes import letter, A4
 from reportlab.platypus import SimpleDocTemplate, Table, TableStyle, Paragraph, Spacer
@@ -89,80 +89,166 @@ def get_timesheet_data(employee_name=None, start_date=None, end_date=None, is_ma
 def calculate_hours(clock_in, clock_out):
     """Calculate hours worked"""
     if not clock_out:
-        return "In Progress"
+        return 0  # Return 0 for in-progress shifts
     
     duration = clock_out - clock_in
     hours = duration.total_seconds() / 3600
     return round(hours, 2)
 
-def calculate_summary(entries):
-    """Calculate summary statistics"""
-    total_hours = 0
-    total_shifts = 0
-    employees = set()
+def get_bst_time(utc_time):
+    return utc_time + timedelta(hours=1)
+
+def is_bst_enhanced_hours(dt):
+    # dt should be BST
+    hour = dt.hour
+    return hour >= 19 or hour < 4
+
+def split_shift_by_rate(clock_in, clock_out, is_supervisor):
+    """
+    Returns a dict: {'Standard': hours, 'Enhanced': hours, 'Supervisor': hours}
+    All times are assumed to be UTC and will be converted to BST for rate logic.
+    Splits at 19:00 (7PM) and 04:00 (4AM) BST boundaries.
+    """
+    if not clock_out:
+        return {'Standard': 0, 'Enhanced': 0, 'Supervisor': 0}
+    if is_supervisor:
+        total = (clock_out - clock_in).total_seconds() / 3600
+        return {'Standard': 0, 'Enhanced': 0, 'Supervisor': round(total, 2)}
+    # Convert to BST
+    bst_in = get_bst_time(clock_in)
+    bst_out = get_bst_time(clock_out)
+    # Boundaries
+    day = bst_in.date()
+    seven_pm = datetime.combine(day, dtime(19, 0)).replace(tzinfo=None)
+    four_am_next = datetime.combine(day + timedelta(days=1), dtime(4, 0)).replace(tzinfo=None)
+    # If shift ends before 7PM
+    if bst_out <= seven_pm:
+        std = (bst_out - bst_in).total_seconds() / 3600
+        return {'Standard': round(std, 2), 'Enhanced': 0, 'Supervisor': 0}
+    # If shift starts after 7PM and before 4AM
+    if bst_in >= seven_pm and bst_in < four_am_next:
+        enh = (min(bst_out, four_am_next) - bst_in).total_seconds() / 3600
+        std = max((bst_out - four_am_next).total_seconds() / 3600, 0) if bst_out > four_am_next else 0
+        return {'Standard': round(std, 2), 'Enhanced': round(enh, 2), 'Supervisor': 0}
+    # If shift starts before 7PM and ends after 7PM
+    std = (seven_pm - bst_in).total_seconds() / 3600 if bst_in < seven_pm else 0
+    enh = (min(bst_out, four_am_next) - max(bst_in, seven_pm)).total_seconds() / 3600 if bst_out > seven_pm else 0
+    std2 = (bst_out - four_am_next).total_seconds() / 3600 if bst_out > four_am_next else 0
+    return {
+        'Standard': round(std + max(std2, 0), 2),
+        'Enhanced': round(max(enh, 0), 2),
+        'Supervisor': 0
+    }
+
+def calculate_staff_summary(entries):
+    """Calculate summary by staff member with hours per pay rate type"""
+    staff_summary = {}
     
     for entry in entries:
-        _, employee, clock_in, clock_out, pay_rate_type, _ = entry
-        employees.add(employee)
-        total_shifts += 1
+        entry_id, employee, clock_in, clock_out, pay_rate_type, created_at = entry
+        is_supervisor = (pay_rate_type == 'Supervisor')
+        split = split_shift_by_rate(clock_in, clock_out, is_supervisor)
         
-        if clock_out:
-            hours = calculate_hours(clock_in, clock_out)
-            if isinstance(hours, (int, float)):
-                total_hours += hours
+        if employee not in staff_summary:
+            staff_summary[employee] = {
+                'Standard': 0,
+                'Enhanced': 0,
+                'Supervisor': 0,
+                'total_hours': 0,
+                'total_shifts': 0
+            }
+        
+        # Add hours to the appropriate pay rate type
+        staff_summary[employee]['Standard'] += split['Standard']
+        staff_summary[employee]['Enhanced'] += split['Enhanced']
+        staff_summary[employee]['Supervisor'] += split['Supervisor']
+        staff_summary[employee]['total_hours'] += sum(split.values())
+        staff_summary[employee]['total_shifts'] += 1
+    
+    return staff_summary
+
+def calculate_summary(entries):
+    """Calculate overall summary statistics"""
+    staff_summary = calculate_staff_summary(entries)
+    
+    total_hours = sum(staff['total_hours'] for staff in staff_summary.values())
+    total_shifts = sum(staff['total_shifts'] for staff in staff_summary.values())
+    unique_employees = len(staff_summary)
     
     return {
         'total_hours': round(total_hours, 2),
         'total_shifts': total_shifts,
-        'unique_employees': len(employees)
+        'unique_employees': unique_employees,
+        'staff_summary': staff_summary
     }
 
 def export_to_excel(entries, filename="timesheet_export.xlsx"):
-    """Export timesheet data to Excel"""
+    """Export timesheet data to Excel with staff summaries"""
     if not entries:
         return None
     
-    # Prepare data for Excel
-    data = []
-    for entry in entries:
-        entry_id, employee, clock_in, clock_out, pay_rate_type, created_at = entry
-        hours = calculate_hours(clock_in, clock_out)
-        is_supervisor = pay_rate_type == "Supervisor"
-        
-        data.append({
+    # Calculate staff summary
+    staff_summary = calculate_staff_summary(entries)
+    
+    # Prepare staff summary data for Excel
+    summary_data = []
+    for employee, data in staff_summary.items():
+        summary_data.append({
             'Staff Name': employee,
-            'Role': 'Supervisor' if is_supervisor else 'Staff',
-            'Date': clock_in.strftime('%Y-%m-%d'),
-            'Clock-In': clock_in.strftime('%H:%M:%S'),
-            'Clock-Out': clock_out.strftime('%H:%M:%S') if clock_out else 'In Progress',
-            'Hours Worked': hours,
-            'Pay Rate': pay_rate_type,
-            'Supervisor Flag': 'Yes' if is_supervisor else 'No'
+            'Standard Hours': data['Standard'],
+            'Enhanced Hours': data['Enhanced'],
+            'Supervisor Hours': data['Supervisor'],
+            'Total Hours': data['total_hours'],
+            'Total Shifts': data['total_shifts']
         })
     
     # Create DataFrame
-    df = pd.DataFrame(data)
+    df_summary = pd.DataFrame(summary_data)
     
-    # Calculate summary
-    summary = calculate_summary(entries)
+    # Also prepare detailed data for second sheet
+    detailed_data = []
+    for entry in entries:
+        entry_id, employee, clock_in, clock_out, pay_rate_type, created_at = entry
+        is_supervisor = (pay_rate_type == 'Supervisor')
+        split = split_shift_by_rate(clock_in, clock_out, is_supervisor)
+        detailed_data.append({
+            'Staff Name': employee,
+            'Date': clock_in.strftime('%Y-%m-%d'),
+            'Clock-In': clock_in.strftime('%H:%M:%S'),
+            'Clock-Out': clock_out.strftime('%H:%M:%S') if clock_out else 'In Progress',
+            'Standard Hours': split['Standard'],
+            'Enhanced Hours': split['Enhanced'],
+            'Supervisor Hours': split['Supervisor'],
+            'Total Hours': sum(split.values()),
+            'Pay Rate Type': pay_rate_type,
+            'Supervisor Flag': 'Yes' if pay_rate_type == "Supervisor" else 'No'
+        })
+    
+    df_detailed = pd.DataFrame(detailed_data)
+    
+    # Calculate overall summary
+    overall_summary = calculate_summary(entries)
     
     # Create Excel file with multiple sheets
     with pd.ExcelWriter(filename, engine='openpyxl') as writer:
-        # Main timesheet data
-        df.to_excel(writer, sheet_name='Timesheet', index=False)
+        # Staff Summary sheet (main sheet)
+        df_summary.to_excel(writer, sheet_name='Staff Summary', index=False)
         
-        # Summary sheet
+        # Detailed timesheet data
+        df_detailed.to_excel(writer, sheet_name='Detailed Shifts', index=False)
+        
+        # Overall summary sheet
         summary_data = {
             'Metric': ['Total Hours', 'Total Shifts', 'Unique Employees'],
-            'Value': [summary['total_hours'], summary['total_shifts'], summary['unique_employees']]
+            'Value': [overall_summary['total_hours'], overall_summary['total_shifts'], overall_summary['unique_employees']]
         }
         summary_df = pd.DataFrame(summary_data)
-        summary_df.to_excel(writer, sheet_name='Summary', index=False)
+        summary_df.to_excel(writer, sheet_name='Overall Summary', index=False)
     
     return filename
 
 def export_to_pdf(entries, filename="timesheet_export.pdf"):
-    """Export timesheet data to PDF"""
+    """Export timesheet data to PDF with staff summaries"""
     if not entries:
         return None
     
@@ -179,39 +265,40 @@ def export_to_pdf(entries, filename="timesheet_export.pdf"):
         spaceAfter=30,
         alignment=1  # Center
     )
-    title = Paragraph("The Tythe Barn - Timesheet Report", title_style)
+    title = Paragraph("The Tythe Barn - Staff Hours Summary", title_style)
     story.append(title)
     story.append(Spacer(1, 20))
     
-    # Summary section
-    summary = calculate_summary(entries)
+    # Calculate summaries
+    staff_summary = calculate_staff_summary(entries)
+    overall_summary = calculate_summary(entries)
+    
+    # Overall summary section
     summary_text = f"""
-    <b>Summary:</b><br/>
-    Total Hours: {summary['total_hours']}<br/>
-    Total Shifts: {summary['total_shifts']}<br/>
-    Unique Employees: {summary['unique_employees']}
+    <b>Overall Summary:</b><br/>
+    Total Hours: {overall_summary['total_hours']}<br/>
+    Total Shifts: {overall_summary['total_shifts']}<br/>
+    Unique Employees: {overall_summary['unique_employees']}
     """
     summary_para = Paragraph(summary_text, styles['Normal'])
     story.append(summary_para)
     story.append(Spacer(1, 20))
     
-    # Prepare table data
-    table_data = [['Staff Name', 'Role', 'Date', 'Clock-In', 'Clock-Out', 'Hours', 'Pay Rate', 'Supervisor']]
+    # Staff summary table
+    story.append(Paragraph("<b>Staff Hours by Pay Rate Type:</b>", styles['Heading2']))
+    story.append(Spacer(1, 10))
     
-    for entry in entries:
-        entry_id, employee, clock_in, clock_out, pay_rate_type, created_at = entry
-        hours = calculate_hours(clock_in, clock_out)
-        is_supervisor = pay_rate_type == "Supervisor"
-        
+    # Prepare table data
+    table_data = [['Staff Name', 'Standard Hours', 'Enhanced Hours', 'Supervisor Hours', 'Total Hours', 'Total Shifts']]
+    
+    for employee, data in staff_summary.items():
         row = [
             employee,
-            'Supervisor' if is_supervisor else 'Staff',
-            clock_in.strftime('%Y-%m-%d'),
-            clock_in.strftime('%H:%M:%S'),
-            clock_out.strftime('%H:%M:%S') if clock_out else 'In Progress',
-            str(hours),
-            pay_rate_type,
-            'Yes' if is_supervisor else 'No'
+            str(data['Standard']),
+            str(data['Enhanced']),
+            str(data['Supervisor']),
+            str(data['total_hours']),
+            str(data['total_shifts'])
         ]
         table_data.append(row)
     
