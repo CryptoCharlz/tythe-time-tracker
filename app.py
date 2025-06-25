@@ -429,7 +429,7 @@ def main():
         show_manager_dashboard()
 
     # Add VERSION constant and display it in the top-right of the dashboard (sidebar)
-    VERSION = "v1.0.0"
+    VERSION = "v1.0.1"
     st.sidebar.markdown(f"<div style='text-align:right; color: #888; font-size: 0.9em;'>Version: {VERSION}</div>", unsafe_allow_html=True)
 
 def show_employee_interface():
@@ -1044,4 +1044,4 @@ def show_manager_dashboard():
                 st.warning("Please enter an Entry ID")
 
 if __name__ == "__main__":
-    main() # Import fix - get_all_timesheets is defined in app.py, not imported from export_functions
+    main()
