@@ -578,13 +578,20 @@ def show_manager_dashboard():
     with tab3:
         st.subheader("✏️ Edit Shift")
         
-        # Get shift to edit
-        entry_id = st.text_input("Enter Entry ID to edit:", key="edit_entry_id")
+        # Show instructions first
+        st.info("💡 **Instructions:** Copy an Entry ID from the 'View All Entries' tab above, then paste it here to edit that shift.")
         
-        if entry_id:
+        # Get shift to edit
+        entry_id = st.text_input("Enter Entry ID to edit:", key="edit_entry_id", placeholder="Paste Entry ID here...")
+        
+        if not entry_id:
+            st.warning("Please enter an Entry ID to edit a shift")
+        else:
             shift = get_shift_by_id(entry_id)
             if shift:
                 entry_id, employee, clock_in, clock_out, pay_rate_type, created_at = shift
+                
+                st.success(f"✅ Found shift for {employee}")
                 
                 # Debug info (can be removed later)
                 with st.expander("🔍 Debug Info", expanded=False):
@@ -593,6 +600,9 @@ def show_manager_dashboard():
                     st.write(f"Clock In: {clock_in}")
                     st.write(f"Clock Out: {clock_out}")
                     st.write(f"Pay Rate: {pay_rate_type}")
+                
+                st.markdown("---")
+                st.subheader("Edit Shift Details")
                 
                 col1, col2 = st.columns(2)
                 
@@ -644,7 +654,8 @@ def show_manager_dashboard():
                     else:
                         st.warning("Please enter an employee name")
             else:
-                st.error("Shift not found. Please check the Entry ID.")
+                st.error("❌ Shift not found. Please check the Entry ID.")
+                st.info("💡 Make sure you copied the Entry ID correctly from the 'View All Entries' tab.")
     
     with tab4:
         st.subheader("🗑️ Delete Entry")
