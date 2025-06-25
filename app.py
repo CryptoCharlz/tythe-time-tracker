@@ -4,6 +4,10 @@ import os
 from datetime import datetime
 import uuid
 from dotenv import load_dotenv
+from export_functions import (
+    get_date_range, get_timesheet_data, export_to_excel, 
+    export_to_pdf, get_download_link, calculate_summary
+)
 
 # Load environment variables
 load_dotenv()
@@ -378,13 +382,15 @@ def main():
     # Sidebar for navigation
     page = st.sidebar.selectbox(
         "Choose a page:",
-        ["Employee Clock In/Out", "Personal Timesheet", "Manager Dashboard"]
+        ["Employee Clock In/Out", "Personal Timesheet", "Export Timesheet", "Manager Dashboard"]
     )
     
     if page == "Employee Clock In/Out":
         show_employee_interface()
     elif page == "Personal Timesheet":
         show_personal_timesheet()
+    elif page == "Export Timesheet":
+        show_export_interface()
     elif page == "Manager Dashboard":
         show_manager_dashboard()
 
@@ -478,6 +484,223 @@ def show_personal_timesheet():
     else:
         st.info("Please enter your name to view your timesheet")
 
+def show_export_interface():
+    """Export timesheet interface for both employees and managers"""
+    st.header("📤 Export Timesheet")
+    
+    # Check if user is manager
+    is_manager = st.session_state.get('manager_authenticated', False)
+    
+    if is_manager:
+        st.success("👨‍💼 Manager Export Access")
+        st.info("You can export timesheets for any employee or the entire team.")
+    else:
+        st.info("👤 Employee Export Access")
+        st.info("You can only export your own timesheet.")
+    
+    st.markdown("---")
+    
+    # Employee selection (managers only)
+    employee_name = None
+    if is_manager:
+        col1, col2 = st.columns(2)
+        with col1:
+            export_type = st.selectbox(
+                "Export Type:",
+                ["Individual Employee", "All Staff (Bulk Export)"],
+                key="export_type"
+            )
+        
+        with col2:
+            if export_type == "Individual Employee":
+                employee_name = st.text_input("Employee Name:", key="export_employee_name")
+            else:
+                st.info("📊 Bulk export will include all staff members")
+    else:
+        employee_name = st.text_input("Enter your name:", key="export_employee_name")
+    
+    st.markdown("---")
+    
+    # Date range selection
+    st.subheader("📅 Date Range Selection")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        date_option = st.selectbox(
+            "Quick Options:",
+            ["Custom Range", "This Week", "Last Week", "This Month"],
+            key="date_option"
+        )
+    
+    with col2:
+        if date_option == "Custom Range":
+            start_date = st.date_input("From Date:", key="start_date")
+            end_date = st.date_input("To Date:", key="end_date")
+        else:
+            start_date, end_date = get_date_range(date_option)
+            st.info(f"Selected: {start_date} to {end_date}")
+    
+    st.markdown("---")
+    
+    # Export format and options
+    st.subheader("📋 Export Options")
+    
+    col1, col2 = st.columns(2)
+    
+    with col1:
+        export_format = st.selectbox(
+            "Export Format:",
+            ["Excel (.xlsx)", "PDF"],
+            key="export_format"
+        )
+    
+    with col2:
+        if is_manager:
+            role_filter = st.selectbox(
+                "Filter by Role:",
+                ["All Roles", "Staff Only", "Supervisors Only"],
+                key="role_filter"
+            )
+        else:
+            role_filter = "All Roles"
+    
+    st.markdown("---")
+    
+    # Preview and export
+    if st.button("👁️ Preview Data", type="secondary"):
+        if not employee_name and not is_manager:
+            st.warning("Please enter your name")
+            return
+        
+        # Get data
+        entries = get_timesheet_data(
+            employee_name=employee_name if employee_name else None,
+            start_date=start_date,
+            end_date=end_date,
+            is_manager=is_manager
+        )
+        
+        if entries:
+            st.success(f"✅ Found {len(entries)} entries")
+            
+            # Calculate summary
+            summary = calculate_summary(entries)
+            
+            # Display summary
+            col1, col2, col3 = st.columns(3)
+            with col1:
+                st.metric("Total Hours", f"{summary['total_hours']}")
+            with col2:
+                st.metric("Total Shifts", f"{summary['total_shifts']}")
+            with col3:
+                st.metric("Unique Employees", f"{summary['unique_employees']}")
+            
+            # Preview data
+            st.subheader("📊 Data Preview")
+            preview_data = []
+            for entry in entries[:10]:  # Show first 10 entries
+                entry_id, emp, clock_in, clock_out, pay_rate_type, created_at = entry
+                hours = calculate_hours(clock_in, clock_out)
+                preview_data.append({
+                    "Employee": emp,
+                    "Date": clock_in.strftime('%Y-%m-%d'),
+                    "Clock-In": clock_in.strftime('%H:%M:%S'),
+                    "Clock-Out": clock_out.strftime('%H:%M:%S') if clock_out else "In Progress",
+                    "Hours": hours,
+                    "Pay Rate": pay_rate_type,
+                    "Supervisor": "Yes" if pay_rate_type == "Supervisor" else "No"
+                })
+            
+            st.dataframe(preview_data, use_container_width=True)
+            
+            if len(entries) > 10:
+                st.info(f"Showing first 10 of {len(entries)} entries")
+            
+            # Export buttons
+            st.markdown("---")
+            st.subheader("📤 Export")
+            
+            col1, col2 = st.columns(2)
+            
+            with col1:
+                if export_format == "Excel (.xlsx)":
+                    if st.button("📊 Export to Excel", type="primary"):
+                        filename = f"timesheet_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+                        export_to_excel(entries, filename)
+                        
+                        # Create download link
+                        with open(filename, "rb") as f:
+                            st.download_button(
+                                label="📥 Download Excel File",
+                                data=f.read(),
+                                file_name=filename,
+                                mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                            )
+                        os.remove(filename)  # Clean up
+                else:
+                    if st.button("📄 Export to PDF", type="primary"):
+                        filename = f"timesheet_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+                        export_to_pdf(entries, filename)
+                        
+                        # Create download link
+                        with open(filename, "rb") as f:
+                            st.download_button(
+                                label="📥 Download PDF File",
+                                data=f.read(),
+                                file_name=filename,
+                                mime="application/pdf"
+                            )
+                        os.remove(filename)  # Clean up
+            
+            with col2:
+                st.info("💡 **Export includes:**\n- Staff name & role\n- Clock-in/out times\n- Total hours worked\n- Applied pay rate\n- Supervisor flag\n- Summary totals")
+        else:
+            st.warning("No entries found for the selected criteria")
+    
+    # Direct export without preview
+    st.markdown("---")
+    if st.button("🚀 Export Directly", type="primary"):
+        if not employee_name and not is_manager:
+            st.warning("Please enter your name")
+            return
+        
+        # Get data
+        entries = get_timesheet_data(
+            employee_name=employee_name if employee_name else None,
+            start_date=start_date,
+            end_date=end_date,
+            is_manager=is_manager
+        )
+        
+        if entries:
+            if export_format == "Excel (.xlsx)":
+                filename = f"timesheet_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+                export_to_excel(entries, filename)
+                
+                with open(filename, "rb") as f:
+                    st.download_button(
+                        label="📥 Download Excel File",
+                        data=f.read(),
+                        file_name=filename,
+                        mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                    )
+                os.remove(filename)
+            else:
+                filename = f"timesheet_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+                export_to_pdf(entries, filename)
+                
+                with open(filename, "rb") as f:
+                    st.download_button(
+                        label="📥 Download PDF File",
+                        data=f.read(),
+                        file_name=filename,
+                        mime="application/pdf"
+                    )
+                os.remove(filename)
+        else:
+            st.warning("No entries found for the selected criteria")
+
 def show_manager_dashboard():
     """Manager dashboard with password protection"""
     st.header("👨‍💼 Manager Dashboard")
@@ -513,6 +736,37 @@ def show_manager_dashboard():
         entries = get_all_timesheets()
         
         if entries:
+            # Quick export section
+            with st.expander("📤 Quick Export", expanded=False):
+                col1, col2 = st.columns(2)
+                with col1:
+                    quick_export_format = st.selectbox("Format:", ["Excel (.xlsx)", "PDF"], key="quick_export_format")
+                with col2:
+                    if quick_export_format == "Excel (.xlsx)":
+                        if st.button("📊 Export All to Excel", key="quick_excel"):
+                            filename = f"all_timesheets_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
+                            export_to_excel(entries, filename)
+                            with open(filename, "rb") as f:
+                                st.download_button(
+                                    label="📥 Download Excel File",
+                                    data=f.read(),
+                                    file_name=filename,
+                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
+                                )
+                            os.remove(filename)
+                    else:
+                        if st.button("📄 Export All to PDF", key="quick_pdf"):
+                            filename = f"all_timesheets_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
+                            export_to_pdf(entries, filename)
+                            with open(filename, "rb") as f:
+                                st.download_button(
+                                    label="📥 Download PDF File",
+                                    data=f.read(),
+                                    file_name=filename,
+                                    mime="application/pdf"
+                                )
+                            os.remove(filename)
+            
             # Prepare data for display
             all_data = []
             for entry in entries:
