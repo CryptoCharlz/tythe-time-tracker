@@ -114,13 +114,13 @@ def split_shift_by_rate(clock_in, clock_out, is_supervisor):
     if is_supervisor:
         total = (clock_out - clock_in).total_seconds() / 3600
         return {'Standard': 0, 'Enhanced': 0, 'Supervisor': round(total, 2)}
-    # Convert to BST
-    bst_in = get_bst_time(clock_in)
-    bst_out = get_bst_time(clock_out)
+    # Convert to BST and make naive for comparison
+    bst_in = get_bst_time(clock_in).replace(tzinfo=None)
+    bst_out = get_bst_time(clock_out).replace(tzinfo=None)
     # Boundaries
     day = bst_in.date()
-    seven_pm = datetime.combine(day, dtime(19, 0)).replace(tzinfo=None)
-    four_am_next = datetime.combine(day + timedelta(days=1), dtime(4, 0)).replace(tzinfo=None)
+    seven_pm = datetime.combine(day, dtime(19, 0))
+    four_am_next = datetime.combine(day + timedelta(days=1), dtime(4, 0))
     # If shift ends before 7PM
     if bst_out <= seven_pm:
         std = (bst_out - bst_in).total_seconds() / 3600
