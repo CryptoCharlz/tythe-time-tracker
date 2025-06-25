@@ -20,11 +20,11 @@ def get_db_connection():
     """Create and return a database connection"""
     try:
         conn = psycopg2.connect(
-            host=os.getenv('SUPABASE_HOST'),
-            database=os.getenv('SUPABASE_DATABASE'),
-            user=os.getenv('SUPABASE_USER'),
-            password=os.getenv('SUPABASE_PASSWORD'),
-            port=os.getenv('SUPABASE_PORT', '5432'),
+            host=st.secrets["SUPABASE"]["HOST"],
+            database=st.secrets["SUPABASE"]["DATABASE"],
+            user=st.secrets["SUPABASE"]["USER"],
+            password=st.secrets["SUPABASE"]["PASSWORD"],
+            port=st.secrets["SUPABASE"]["PORT"],
             # Force IPv4 connection to avoid IPv6 issues
             options='-c family=ipv4'
         )
@@ -322,7 +322,7 @@ def show_manager_dashboard():
         password = st.text_input("Enter manager password:", type="password")
         if st.button("Login"):
             # Simple password check - in production, use proper authentication
-            if password == os.getenv('MANAGER_PASSWORD', 'tythe2024'):
+            if password == st.secrets["MANAGER_PASSWORD"]:
                 st.session_state.manager_authenticated = True
                 st.success("Login successful!")
                 st.rerun()
