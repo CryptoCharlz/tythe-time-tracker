@@ -182,66 +182,99 @@ def calculate_summary(entries):
         'staff_summary': staff_summary
     }
 
-def export_to_excel(entries, filename="timesheet_export.xlsx"):
-    """Export timesheet data to Excel with staff summaries"""
+def export_to_excel(entries, filename="timesheet_export.xlsx", start_date=None, end_date=None):
+    """Export timesheet data to Excel with staff summaries and individual shifts"""
     if not entries:
         return None
     
     # Calculate staff summary
     staff_summary = calculate_staff_summary(entries)
     
-    # Prepare staff summary data for Excel
-    summary_data = []
+    # Prepare hierarchical data for Excel
+    hierarchical_data = []
+    
     for employee, data in staff_summary.items():
-        summary_data.append({
-            'Staff Name': employee,
+        # Add staff summary row
+        hierarchical_data.append({
+            'Staff Name': f"📊 {employee} - TOTALS",
+            'Date': '',
+            'Clock-In': '',
+            'Clock-Out': '',
             'Standard Hours': data['Standard'],
             'Enhanced Hours': data['Enhanced'],
             'Supervisor Hours': data['Supervisor'],
             'Total Hours': data['total_hours'],
-            'Total Shifts': data['total_shifts']
+            'Total Shifts': data['total_shifts'],
+            'Pay Rate Type': '',
+            'Supervisor Flag': ''
+        })
+        
+        # Add individual shifts for this staff member
+        for entry in entries:
+            entry_id, emp, clock_in, clock_out, pay_rate_type, created_at = entry
+            if emp == employee:
+                is_supervisor = (pay_rate_type == 'Supervisor')
+                split = split_shift_by_rate(clock_in, clock_out, is_supervisor)
+                
+                # Create a display string for the shift
+                if is_supervisor:
+                    shift_display = f"Supervisor ({split['Supervisor']}h)"
+                elif split['Standard'] > 0 and split['Enhanced'] > 0:
+                    shift_display = f"Mixed: {split['Standard']}h Standard, {split['Enhanced']}h Enhanced"
+                elif split['Enhanced'] > 0:
+                    shift_display = f"Enhanced ({split['Enhanced']}h)"
+                else:
+                    shift_display = f"Standard ({split['Standard']}h)"
+                
+                hierarchical_data.append({
+                    'Staff Name': f"  └─ {employee}",
+                    'Date': clock_in.strftime('%Y-%m-%d'),
+                    'Clock-In': clock_in.strftime('%H:%M:%S'),
+                    'Clock-Out': clock_out.strftime('%H:%M:%S') if clock_out else 'In Progress',
+                    'Standard Hours': split['Standard'],
+                    'Enhanced Hours': split['Enhanced'],
+                    'Supervisor Hours': split['Supervisor'],
+                    'Total Hours': sum(split.values()),
+                    'Total Shifts': '',
+                    'Pay Rate Type': shift_display,
+                    'Supervisor Flag': 'Yes' if pay_rate_type == "Supervisor" else 'No'
+                })
+        
+        # Add blank row between staff members
+        hierarchical_data.append({
+            'Staff Name': '',
+            'Date': '',
+            'Clock-In': '',
+            'Clock-Out': '',
+            'Standard Hours': '',
+            'Enhanced Hours': '',
+            'Supervisor Hours': '',
+            'Total Hours': '',
+            'Total Shifts': '',
+            'Pay Rate Type': '',
+            'Supervisor Flag': ''
         })
     
     # Create DataFrame
-    df_summary = pd.DataFrame(summary_data)
-    
-    # Also prepare detailed data for second sheet
-    detailed_data = []
-    for entry in entries:
-        entry_id, employee, clock_in, clock_out, pay_rate_type, created_at = entry
-        is_supervisor = (pay_rate_type == 'Supervisor')
-        split = split_shift_by_rate(clock_in, clock_out, is_supervisor)
-        detailed_data.append({
-            'Staff Name': employee,
-            'Date': clock_in.strftime('%Y-%m-%d'),
-            'Clock-In': clock_in.strftime('%H:%M:%S'),
-            'Clock-Out': clock_out.strftime('%H:%M:%S') if clock_out else 'In Progress',
-            'Standard Hours': split['Standard'],
-            'Enhanced Hours': split['Enhanced'],
-            'Supervisor Hours': split['Supervisor'],
-            'Total Hours': sum(split.values()),
-            'Pay Rate Type': pay_rate_type,
-            'Supervisor Flag': 'Yes' if pay_rate_type == "Supervisor" else 'No'
-        })
-    
-    df_detailed = pd.DataFrame(detailed_data)
+    df_hierarchical = pd.DataFrame(hierarchical_data)
     
     # Calculate overall summary
     overall_summary = calculate_summary(entries)
     
     # Create Excel file with multiple sheets
     with pd.ExcelWriter(filename, engine='openpyxl') as writer:
-        # Staff Summary sheet (main sheet)
-        df_summary.to_excel(writer, sheet_name='Staff Summary', index=False)
-        
-        # Detailed timesheet data
-        df_detailed.to_excel(writer, sheet_name='Detailed Shifts', index=False)
+        # Hierarchical view (main sheet)
+        df_hierarchical.to_excel(writer, sheet_name='Staff Hours & Shifts', index=False)
         
         # Overall summary sheet
         summary_data = {
             'Metric': ['Total Hours', 'Total Shifts', 'Unique Employees'],
             'Value': [overall_summary['total_hours'], overall_summary['total_shifts'], overall_summary['unique_employees']]
         }
+        if start_date and end_date:
+            summary_data['Metric'].extend(['Date Range'])
+            summary_data['Value'].extend([f"{start_date} to {end_date}"])
+        
         summary_df = pd.DataFrame(summary_data)
         summary_df.to_excel(writer, sheet_name='Overall Summary', index=False)
     

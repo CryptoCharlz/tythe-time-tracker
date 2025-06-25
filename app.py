@@ -709,7 +709,7 @@ def show_export_interface():
                 if export_format == "Excel (.xlsx)":
                     if st.button("📊 Export to Excel", type="primary"):
                         filename = f"timesheet_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-                        export_to_excel(entries, filename)
+                        export_to_excel(entries, filename, start_date, end_date)
                         
                         # Create download link
                         with open(filename, "rb") as f:
@@ -758,7 +758,7 @@ def show_export_interface():
         if entries:
             if export_format == "Excel (.xlsx)":
                 filename = f"timesheet_export_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-                export_to_excel(entries, filename)
+                export_to_excel(entries, filename, start_date, end_date)
                 
                 with open(filename, "rb") as f:
                     st.download_button(
@@ -827,7 +827,7 @@ def show_manager_dashboard():
                     if quick_export_format == "Excel (.xlsx)":
                         if st.button("📊 Export All to Excel", key="quick_excel"):
                             filename = f"all_timesheets_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-                            export_to_excel(entries, filename)
+                            export_to_excel(entries, filename, None, None)  # No date range for "all" export
                             with open(filename, "rb") as f:
                                 st.download_button(
                                     label="📥 Download Excel File",
