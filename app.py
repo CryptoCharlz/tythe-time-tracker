@@ -503,12 +503,27 @@ def show_personal_timesheet():
             timesheet_data = []
             for entry in entries:
                 entry_id, clock_in, clock_out, pay_rate_type, created_at = entry
+                
+                # Calculate the actual split using our new logic
+                is_supervisor = (pay_rate_type == 'Supervisor')
+                split = split_shift_by_rate(clock_in, clock_out, is_supervisor)
+                
+                # Create a display string showing the split
+                if is_supervisor:
+                    rate_display = f"Supervisor ({split['Supervisor']}h)"
+                elif split['Standard'] > 0 and split['Enhanced'] > 0:
+                    rate_display = f"Mixed: {split['Standard']}h Standard, {split['Enhanced']}h Enhanced"
+                elif split['Enhanced'] > 0:
+                    rate_display = f"Enhanced ({split['Enhanced']}h)"
+                else:
+                    rate_display = f"Standard ({split['Standard']}h)"
+                
                 timesheet_data.append({
                     "Date": clock_in.strftime('%Y-%m-%d'),
                     "Clock-In": clock_in.strftime('%H:%M:%S'),
                     "Clock-Out": clock_out.strftime('%H:%M:%S') if clock_out else "🟢 Still Open",
                     "Duration": str(clock_out - clock_in).split('.')[0] if clock_out else "In Progress",
-                    "Pay Rate Type": pay_rate_type
+                    "Pay Rate": rate_display
                 })
             
             st.dataframe(timesheet_data, use_container_width=True)
@@ -838,13 +853,28 @@ def show_manager_dashboard():
             all_data = []
             for entry in entries:
                 entry_id, employee, clock_in, clock_out, pay_rate_type, created_at = entry
+                
+                # Calculate the actual split using our new logic
+                is_supervisor = (pay_rate_type == 'Supervisor')
+                split = split_shift_by_rate(clock_in, clock_out, is_supervisor)
+                
+                # Create a display string showing the split
+                if is_supervisor:
+                    rate_display = f"Supervisor ({split['Supervisor']}h)"
+                elif split['Standard'] > 0 and split['Enhanced'] > 0:
+                    rate_display = f"Mixed: {split['Standard']}h Standard, {split['Enhanced']}h Enhanced"
+                elif split['Enhanced'] > 0:
+                    rate_display = f"Enhanced ({split['Enhanced']}h)"
+                else:
+                    rate_display = f"Standard ({split['Standard']}h)"
+                
                 all_data.append({
                     "Employee": employee,
                     "Date": clock_in.strftime('%Y-%m-%d'),
                     "Clock-In": clock_in.strftime('%H:%M:%S'),
                     "Clock-Out": clock_out.strftime('%H:%M:%S') if clock_out else "🟢 Still Open",
                     "Duration": str(clock_out - clock_in).split('.')[0] if clock_out else "In Progress",
-                    "Pay Rate Type": pay_rate_type,
+                    "Pay Rate": rate_display,
                     "Entry ID": str(entry_id)
                 })
             
