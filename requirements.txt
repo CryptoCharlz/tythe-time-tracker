@@ -1,7 +1,19 @@
+# Production dependencies
 streamlit>=1.28.0
 psycopg2-binary>=2.9.7
 python-dotenv>=1.0.0
 pandas>=1.5.0
 openpyxl>=3.0.0
 reportlab>=4.0.0
-streamlit-aggrid>=0.3.4 
+streamlit-aggrid>=0.3.4
+
+# Development dependencies
+pytest>=7.4.0
+pytest-cov>=4.1.0
+pytest-mock>=3.11.0
+black>=23.7.0
+isort>=5.12.0
+flake8>=6.0.0
+mypy>=1.5.0
+pre-commit>=3.3.0
+coverage>=7.2.0 
