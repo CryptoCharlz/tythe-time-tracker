@@ -6,7 +6,7 @@ import uuid
 from dotenv import load_dotenv
 from export_functions import (
     get_date_range, get_timesheet_data, export_to_excel, 
-    export_to_pdf, get_download_link, calculate_summary, split_shift_by_rate, get_hierarchical_staff_shift_data
+    export_to_pdf, get_download_link, calculate_summary, split_shift_by_rate, get_hierarchical_staff_shift_data, get_all_timesheets
 )
 import pandas as pd
 
@@ -818,24 +818,56 @@ def show_manager_dashboard():
         st.subheader("All Time Entries (Grouped)")
         entries = get_all_timesheets()
         if entries:
-            all_data = get_hierarchical_staff_shift_data(entries)
-            columns = [
-                'Staff Name', 'Date', 'Clock-In', 'Clock-Out',
-                'Standard Hours', 'Enhanced Hours', 'Supervisor Hours',
-                'Total Hours', 'Total Shifts', 'Pay Rate Type', 'Supervisor Flag'
-            ]
-            df = pd.DataFrame(all_data, columns=columns)
-            # Add edit buttons for shift rows (not totals/blank)
-            for i, row in df.iterrows():
-                if row['Date'] and row['Clock-In']:
-                    entry = next((e for e in entries if e[1].strip().lower() in row['Staff Name'].strip().lower() and e[2].strftime('%Y-%m-%d') == row['Date'] and e[2].strftime('%H:%M:%S') == row['Clock-In']), None)
-                    if entry:
-                        entry_id = entry[0]
-                        edit_col = st.button(f"✏️ Edit", key=f"edit_{entry_id}")
-                        if edit_col:
-                            st.session_state['edit_entry_id'] = str(entry_id)
-                            st.session_state['__active_tab__'] = 2  # Switch to Edit Shift tab
-            st.dataframe(df, use_container_width=True)
+            # Group by staff
+            from collections import defaultdict
+            staff_shifts = defaultdict(list)
+            for entry in entries:
+                entry_id, employee, clock_in, clock_out, pay_rate_type, created_at = entry
+                staff_shifts[employee.strip()].append(entry)
+            for staff, shifts in sorted(staff_shifts.items()):
+                with st.expander(f"{staff}", expanded=False):
+                    # Staff summary
+                    total_std = total_enh = total_sup = total_hours = 0
+                    for entry in shifts:
+                        _, _, clock_in, clock_out, pay_rate_type, _ = entry
+                        is_supervisor = (pay_rate_type == 'Supervisor')
+                        split = split_shift_by_rate(clock_in, clock_out, is_supervisor)
+                        total_std += split['Standard']
+                        total_enh += split['Enhanced']
+                        total_sup += split['Supervisor']
+                        total_hours += sum(split.values())
+                    st.markdown(f"**Total:** {total_hours:.2f}h  ")
+                    st.markdown(f"Standard: {total_std:.2f}h | Enhanced: {total_enh:.2f}h | Supervisor: {total_sup:.2f}h")
+                    st.markdown("---")
+                    # List shifts
+                    for entry in sorted(shifts, key=lambda e: e[2]):
+                        entry_id, _, clock_in, clock_out, pay_rate_type, _ = entry
+                        is_supervisor = (pay_rate_type == 'Supervisor')
+                        split = split_shift_by_rate(clock_in, clock_out, is_supervisor)
+                        if is_supervisor:
+                            rate_display = f"Supervisor ({split['Supervisor']}h)"
+                        elif split['Standard'] > 0 and split['Enhanced'] > 0:
+                            rate_display = f"Mixed: {split['Standard']}h Standard, {split['Enhanced']}h Enhanced"
+                        elif split['Enhanced'] > 0:
+                            rate_display = f"Enhanced ({split['Enhanced']}h)"
+                        else:
+                            rate_display = f"Standard ({split['Standard']}h)"
+                        col1, col2, col3, col4, col5 = st.columns([2,2,2,3,1])
+                        with col1:
+                            st.markdown(clock_in.strftime('%Y-%m-%d'))
+                        with col2:
+                            st.markdown(clock_in.strftime('%H:%M'))
+                        with col3:
+                            st.markdown(clock_out.strftime('%H:%M') if clock_out else 'In Progress')
+                        with col4:
+                            st.markdown(rate_display)
+                        with col5:
+                            if st.button("✏️", key=f"edit_{entry_id}"):
+                                st.session_state['edit_entry_id'] = str(entry_id)
+                                st.session_state['__active_tab__'] = 2
+                            if st.button("🗑️", key=f"delete_{entry_id}"):
+                                st.session_state['delete_entry_id'] = str(entry_id)
+                                st.session_state['__active_tab__'] = 3
         else:
             st.info("No time entries found")
     
