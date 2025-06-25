@@ -190,6 +190,9 @@ def export_to_excel(entries, filename="timesheet_export.xlsx", start_date=None, 
     # Calculate staff summary
     staff_summary = calculate_staff_summary(entries)
     
+    # Sort entries by employee (case-insensitive, trimmed) and clock_in
+    entries_sorted = sorted(entries, key=lambda e: (e[1].strip().lower(), e[2]))
+    
     # Prepare hierarchical data for Excel
     hierarchical_data = []
     
@@ -210,9 +213,9 @@ def export_to_excel(entries, filename="timesheet_export.xlsx", start_date=None, 
         })
         
         # Add individual shifts for this staff member
-        for entry in entries:
+        for entry in entries_sorted:
             entry_id, emp, clock_in, clock_out, pay_rate_type, created_at = entry
-            if emp == employee:
+            if emp.strip().lower() == employee.strip().lower():
                 is_supervisor = (pay_rate_type == 'Supervisor')
                 split = split_shift_by_rate(clock_in, clock_out, is_supervisor)
                 
