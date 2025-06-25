@@ -819,13 +819,23 @@ def show_manager_dashboard():
         entries = get_all_timesheets()
         if entries:
             all_data = get_hierarchical_staff_shift_data(entries)
-            # Set column order to match export
             columns = [
                 'Staff Name', 'Date', 'Clock-In', 'Clock-Out',
                 'Standard Hours', 'Enhanced Hours', 'Supervisor Hours',
                 'Total Hours', 'Total Shifts', 'Pay Rate Type', 'Supervisor Flag'
             ]
-            st.dataframe(pd.DataFrame(all_data, columns=columns), use_container_width=True)
+            df = pd.DataFrame(all_data, columns=columns)
+            # Add edit buttons for shift rows (not totals/blank)
+            for i, row in df.iterrows():
+                if row['Date'] and row['Clock-In']:
+                    entry = next((e for e in entries if e[1].strip().lower() in row['Staff Name'].strip().lower() and e[2].strftime('%Y-%m-%d') == row['Date'] and e[2].strftime('%H:%M:%S') == row['Clock-In']), None)
+                    if entry:
+                        entry_id = entry[0]
+                        edit_col = st.button(f"✏️ Edit", key=f"edit_{entry_id}")
+                        if edit_col:
+                            st.session_state['edit_entry_id'] = str(entry_id)
+                            st.session_state['__active_tab__'] = 2  # Switch to Edit Shift tab
+            st.dataframe(df, use_container_width=True)
         else:
             st.info("No time entries found")
     
