@@ -400,3 +400,70 @@ def get_download_link(file_path, file_name, file_type):
     b64 = base64.b64encode(data).decode()
     href = f'<a href="data:application/{file_type};base64,{b64}" download="{file_name}">Download {file_name}</a>'
     return href 
+
+def get_hierarchical_staff_shift_data(entries):
+    """
+    Returns a list of dicts: staff total row, then their shifts, then blank row, for all staff.
+    Each dict has keys: Staff Name, Date, Clock-In, Clock-Out, Standard Hours, Enhanced Hours, Supervisor Hours, Total Hours, Total Shifts, Pay Rate Type, Supervisor Flag
+    """
+    staff_summary = calculate_staff_summary(entries)
+    # Sort entries by employee (case-insensitive, trimmed) and clock_in
+    entries_sorted = sorted(entries, key=lambda e: (e[1].strip().lower(), e[2]))
+    hierarchical_data = []
+    for employee, data in staff_summary.items():
+        # Add staff summary row
+        hierarchical_data.append({
+            'Staff Name': f"📊 {employee} - TOTALS",
+            'Date': '',
+            'Clock-In': '',
+            'Clock-Out': '',
+            'Standard Hours': data['Standard'],
+            'Enhanced Hours': data['Enhanced'],
+            'Supervisor Hours': data['Supervisor'],
+            'Total Hours': data['total_hours'],
+            'Total Shifts': data['total_shifts'],
+            'Pay Rate Type': '',
+            'Supervisor Flag': ''
+        })
+        # Add individual shifts for this staff member
+        for entry in entries_sorted:
+            entry_id, emp, clock_in, clock_out, pay_rate_type, created_at = entry
+            if emp.strip().lower() == employee.strip().lower():
+                is_supervisor = (pay_rate_type == 'Supervisor')
+                split = split_shift_by_rate(clock_in, clock_out, is_supervisor)
+                if is_supervisor:
+                    shift_display = f"Supervisor ({split['Supervisor']}h)"
+                elif split['Standard'] > 0 and split['Enhanced'] > 0:
+                    shift_display = f"Mixed: {split['Standard']}h Standard, {split['Enhanced']}h Enhanced"
+                elif split['Enhanced'] > 0:
+                    shift_display = f"Enhanced ({split['Enhanced']}h)"
+                else:
+                    shift_display = f"Standard ({split['Standard']}h)"
+                hierarchical_data.append({
+                    'Staff Name': f"  └─ {employee}",
+                    'Date': clock_in.strftime('%Y-%m-%d'),
+                    'Clock-In': clock_in.strftime('%H:%M:%S'),
+                    'Clock-Out': clock_out.strftime('%H:%M:%S') if clock_out else 'In Progress',
+                    'Standard Hours': split['Standard'],
+                    'Enhanced Hours': split['Enhanced'],
+                    'Supervisor Hours': split['Supervisor'],
+                    'Total Hours': sum(split.values()),
+                    'Total Shifts': '',
+                    'Pay Rate Type': shift_display,
+                    'Supervisor Flag': 'Yes' if pay_rate_type == "Supervisor" else 'No'
+                })
+        # Add blank row between staff members
+        hierarchical_data.append({
+            'Staff Name': '',
+            'Date': '',
+            'Clock-In': '',
+            'Clock-Out': '',
+            'Standard Hours': '',
+            'Enhanced Hours': '',
+            'Supervisor Hours': '',
+            'Total Hours': '',
+            'Total Shifts': '',
+            'Pay Rate Type': '',
+            'Supervisor Flag': ''
+        })
+    return hierarchical_data 

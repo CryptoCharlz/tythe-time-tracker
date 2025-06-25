@@ -6,7 +6,7 @@ import uuid
 from dotenv import load_dotenv
 from export_functions import (
     get_date_range, get_timesheet_data, export_to_excel, 
-    export_to_pdf, get_download_link, calculate_summary, split_shift_by_rate
+    export_to_pdf, get_download_link, calculate_summary, split_shift_by_rate, get_hierarchical_staff_shift_data
 )
 
 # Load environment variables
@@ -814,71 +814,10 @@ def show_manager_dashboard():
     tab1, tab2, tab3, tab4 = st.tabs(["📊 View All Entries", "➕ Add Shift", "✏️ Edit Shift", "🗑️ Delete Entry"])
     
     with tab1:
-        st.subheader("All Time Entries")
+        st.subheader("All Time Entries (Grouped)")
         entries = get_all_timesheets()
-        
         if entries:
-            # Quick export section
-            with st.expander("📤 Quick Export", expanded=False):
-                col1, col2 = st.columns(2)
-                with col1:
-                    quick_export_format = st.selectbox("Format:", ["Excel (.xlsx)", "PDF"], key="quick_export_format")
-                with col2:
-                    if quick_export_format == "Excel (.xlsx)":
-                        if st.button("📊 Export All to Excel", key="quick_excel"):
-                            filename = f"all_timesheets_{datetime.now().strftime('%Y%m%d_%H%M%S')}.xlsx"
-                            export_to_excel(entries, filename, None, None)  # No date range for "all" export
-                            with open(filename, "rb") as f:
-                                st.download_button(
-                                    label="📥 Download Excel File",
-                                    data=f.read(),
-                                    file_name=filename,
-                                    mime="application/vnd.openxmlformats-officedocument.spreadsheetml.sheet"
-                                )
-                            os.remove(filename)
-                    else:
-                        if st.button("📄 Export All to PDF", key="quick_pdf"):
-                            filename = f"all_timesheets_{datetime.now().strftime('%Y%m%d_%H%M%S')}.pdf"
-                            export_to_pdf(entries, filename)
-                            with open(filename, "rb") as f:
-                                st.download_button(
-                                    label="📥 Download PDF File",
-                                    data=f.read(),
-                                    file_name=filename,
-                                    mime="application/pdf"
-                                )
-                            os.remove(filename)
-            
-            # Prepare data for display
-            all_data = []
-            for entry in entries:
-                entry_id, employee, clock_in, clock_out, pay_rate_type, created_at = entry
-                
-                # Calculate the actual split using our new logic
-                is_supervisor = (pay_rate_type == 'Supervisor')
-                split = split_shift_by_rate(clock_in, clock_out, is_supervisor)
-                
-                # Create a display string showing the split
-                if is_supervisor:
-                    rate_display = f"Supervisor ({split['Supervisor']}h)"
-                elif split['Standard'] > 0 and split['Enhanced'] > 0:
-                    rate_display = f"Mixed: {split['Standard']}h Standard, {split['Enhanced']}h Enhanced"
-                elif split['Enhanced'] > 0:
-                    rate_display = f"Enhanced ({split['Enhanced']}h)"
-                else:
-                    rate_display = f"Standard ({split['Standard']}h)"
-                
-                all_data.append({
-                    "Employee": employee,
-                    "Date": clock_in.strftime('%Y-%m-%d'),
-                    "Clock-In": clock_in.strftime('%H:%M:%S'),
-                    "Clock-Out": clock_out.strftime('%H:%M:%S') if clock_out else "🟢 Still Open",
-                    "Duration": str(clock_out - clock_in).split('.')[0] if clock_out else "In Progress",
-                    "Pay Rate": rate_display,
-                    "Entry ID": str(entry_id)
-                })
-            
-            # Display the data
+            all_data = get_hierarchical_staff_shift_data(entries)
             st.dataframe(all_data, use_container_width=True)
         else:
             st.info("No time entries found")
