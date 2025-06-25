@@ -10,7 +10,7 @@ from .models import (
     ShiftRequest, StaffSummary, TimeEntry, TimeSplit
 )
 from ..database.repository import TimeEntryRepository
-from ..database.connection import get_db_connection
+from ..database.connection import get_db_connection, DatabaseConnection
 from ..utils.time_utils import TimeUtils
 
 logger = logging.getLogger(__name__)
@@ -29,7 +29,8 @@ class TimeTrackingService:
             conn = get_db_connection()
             if conn is None:
                 raise ValueError("Could not establish database connection")
-            self.repository = TimeEntryRepository(conn)
+            db_connection = DatabaseConnection(conn)
+            self.repository = TimeEntryRepository(db_connection)
         else:
             self.repository = repository
     
