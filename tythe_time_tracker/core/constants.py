@@ -45,6 +45,9 @@ class DatabaseConstants:
     PAY_RATE_TYPE_COLUMN: Final[str] = "pay_rate_type"
     CREATED_AT_COLUMN: Final[str] = "created_at"
 
+    # Default pay rate
+    DEFAULT_PAY_RATE: Final[str] = PayRateType.STANDARD
+
 
 class UIConstants:
     """UI-related constants."""
