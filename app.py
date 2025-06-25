@@ -429,7 +429,7 @@ def main():
         show_manager_dashboard()
 
     # Add VERSION constant and display it in the top-right of the dashboard (sidebar)
-    VERSION = "v1.0.1"
+    VERSION = "v2.0.0"
     st.sidebar.markdown(f"<div style='text-align:right; color: #888; font-size: 0.9em;'>Version: {VERSION}</div>", unsafe_allow_html=True)
 
 def show_employee_interface():
