@@ -243,6 +243,119 @@ def determine_pay_rate_type(is_supervisor, clock_in_time=None):
     else:
         return "Standard"
 
+def add_shift_manually(employee_name, clock_in_date, clock_in_time, clock_out_date, clock_out_time, is_supervisor, pay_rate_override=None):
+    """Add a shift manually for managers"""
+    conn = get_db_connection()
+    if not conn:
+        return False, "Database connection failed"
+    
+    try:
+        cursor = conn.cursor()
+        
+        # Combine date and time for clock-in
+        clock_in_datetime = datetime.combine(clock_in_date, clock_in_time)
+        
+        # Combine date and time for clock-out (if provided)
+        clock_out_datetime = None
+        if clock_out_date and clock_out_time:
+            clock_out_datetime = datetime.combine(clock_out_date, clock_out_time)
+        
+        # Determine pay rate type
+        if pay_rate_override:
+            pay_rate_type = pay_rate_override
+        else:
+            pay_rate_type = determine_pay_rate_type(is_supervisor, clock_in_datetime)
+        
+        # Insert new shift record
+        cursor.execute("""
+            INSERT INTO time_entries (employee, clock_in, clock_out, pay_rate_type)
+            VALUES (%s, %s, %s, %s)
+        """, (employee_name, clock_in_datetime, clock_out_datetime, pay_rate_type))
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return True, f"Shift added for {employee_name} ({pay_rate_type} Rate)"
+        
+    except Exception as e:
+        conn.rollback()
+        cursor.close()
+        conn.close()
+        return False, f"Error adding shift: {e}"
+
+def edit_shift(entry_id, employee_name, clock_in_date, clock_in_time, clock_out_date, clock_out_time, is_supervisor, pay_rate_override=None):
+    """Edit an existing shift"""
+    conn = get_db_connection()
+    if not conn:
+        return False, "Database connection failed"
+    
+    try:
+        cursor = conn.cursor()
+        
+        # Combine date and time for clock-in
+        clock_in_datetime = datetime.combine(clock_in_date, clock_in_time)
+        
+        # Combine date and time for clock-out (if provided)
+        clock_out_datetime = None
+        if clock_out_date and clock_out_time:
+            clock_out_datetime = datetime.combine(clock_out_date, clock_out_time)
+        
+        # Determine pay rate type
+        if pay_rate_override:
+            pay_rate_type = pay_rate_override
+        else:
+            pay_rate_type = determine_pay_rate_type(is_supervisor, clock_in_datetime)
+        
+        # Update the shift record
+        cursor.execute("""
+            UPDATE time_entries 
+            SET employee = %s, clock_in = %s, clock_out = %s, pay_rate_type = %s
+            WHERE id = %s
+        """, (employee_name, clock_in_datetime, clock_out_datetime, pay_rate_type, entry_id))
+        
+        if cursor.rowcount == 0:
+            cursor.close()
+            conn.close()
+            return False, "Shift not found"
+        
+        conn.commit()
+        cursor.close()
+        conn.close()
+        
+        return True, f"Shift updated for {employee_name} ({pay_rate_type} Rate)"
+        
+    except Exception as e:
+        conn.rollback()
+        cursor.close()
+        conn.close()
+        return False, f"Error updating shift: {e}"
+
+def get_shift_by_id(entry_id):
+    """Get a specific shift by ID"""
+    conn = get_db_connection()
+    if not conn:
+        return None
+    
+    try:
+        cursor = conn.cursor()
+        cursor.execute("""
+            SELECT id, employee, clock_in, clock_out, pay_rate_type, created_at
+            FROM time_entries 
+            WHERE id = %s
+        """, (entry_id,))
+        
+        entry = cursor.fetchone()
+        cursor.close()
+        conn.close()
+        return entry
+        
+    except Exception as e:
+        cursor.close()
+        conn.close()
+        st.error(f"Error fetching shift: {e}")
+        return None
+
 # Initialize database on app start
 init_database()
 
@@ -392,31 +505,131 @@ def show_manager_dashboard():
         st.session_state.manager_authenticated = False
         st.rerun()
     
-    st.subheader("All Time Entries")
+    # Manager controls tabs
+    tab1, tab2, tab3, tab4 = st.tabs(["📊 View All Entries", "➕ Add Shift", "✏️ Edit Shift", "🗑️ Delete Entry"])
     
-    entries = get_all_timesheets()
+    with tab1:
+        st.subheader("All Time Entries")
+        entries = get_all_timesheets()
+        
+        if entries:
+            # Prepare data for display
+            all_data = []
+            for entry in entries:
+                entry_id, employee, clock_in, clock_out, pay_rate_type, created_at = entry
+                all_data.append({
+                    "Employee": employee,
+                    "Date": clock_in.strftime('%Y-%m-%d'),
+                    "Clock-In": clock_in.strftime('%H:%M:%S'),
+                    "Clock-Out": clock_out.strftime('%H:%M:%S') if clock_out else "🟢 Still Open",
+                    "Duration": str(clock_out - clock_in).split('.')[0] if clock_out else "In Progress",
+                    "Pay Rate Type": pay_rate_type,
+                    "Entry ID": str(entry_id)
+                })
+            
+            # Display the data
+            st.dataframe(all_data, use_container_width=True)
+        else:
+            st.info("No time entries found")
     
-    if entries:
-        # Prepare data for display
-        all_data = []
-        for entry in entries:
-            entry_id, employee, clock_in, clock_out, pay_rate_type, created_at = entry
-            all_data.append({
-                "Employee": employee,
-                "Date": clock_in.strftime('%Y-%m-%d'),
-                "Clock-In": clock_in.strftime('%H:%M:%S'),
-                "Clock-Out": clock_out.strftime('%H:%M:%S') if clock_out else "🟢 Still Open",
-                "Duration": str(clock_out - clock_in).split('.')[0] if clock_out else "In Progress",
-                "Pay Rate Type": pay_rate_type,
-                "Entry ID": str(entry_id)
-            })
+    with tab2:
+        st.subheader("➕ Add Shift Manually")
         
-        # Display the data
-        st.dataframe(all_data, use_container_width=True)
+        col1, col2 = st.columns(2)
         
-        # Delete functionality
-        st.subheader("Delete Entry")
-        entry_to_delete = st.text_input("Enter Entry ID to delete:")
+        with col1:
+            employee_name = st.text_input("Employee Name:", key="add_employee")
+            clock_in_date = st.date_input("Clock-In Date:", key="add_clock_in_date")
+            clock_in_time = st.time_input("Clock-In Time:", key="add_clock_in_time")
+            is_supervisor = st.checkbox("👑 Supervisor Role", key="add_supervisor")
+        
+        with col2:
+            clock_out_date = st.date_input("Clock-Out Date (optional):", key="add_clock_out_date")
+            clock_out_time = st.time_input("Clock-Out Time (optional):", key="add_clock_out_time")
+            
+            pay_rate_override = st.selectbox(
+                "Pay Rate Override (optional):",
+                ["Auto-calculate", "Standard", "Enhanced", "Supervisor"],
+                key="add_pay_rate_override"
+            )
+            
+            if pay_rate_override == "Auto-calculate":
+                pay_rate_override = None
+        
+        if st.button("➕ Add Shift", type="primary"):
+            if employee_name.strip():
+                success, message = add_shift_manually(
+                    employee_name.strip(),
+                    clock_in_date,
+                    clock_in_time,
+                    clock_out_date if clock_out_date else None,
+                    clock_out_time if clock_out_time else None,
+                    is_supervisor,
+                    pay_rate_override
+                )
+                if success:
+                    st.success(message)
+                    st.rerun()
+                else:
+                    st.error(message)
+            else:
+                st.warning("Please enter an employee name")
+    
+    with tab3:
+        st.subheader("✏️ Edit Shift")
+        
+        # Get shift to edit
+        entry_id = st.text_input("Enter Entry ID to edit:", key="edit_entry_id")
+        
+        if entry_id:
+            shift = get_shift_by_id(entry_id)
+            if shift:
+                entry_id, employee, clock_in, clock_out, pay_rate_type, created_at = shift
+                
+                col1, col2 = st.columns(2)
+                
+                with col1:
+                    employee_name = st.text_input("Employee Name:", value=employee, key="edit_employee")
+                    clock_in_date = st.date_input("Clock-In Date:", value=clock_in.date(), key="edit_clock_in_date")
+                    clock_in_time = st.time_input("Clock-In Time:", value=clock_in.time(), key="edit_clock_in_time")
+                    is_supervisor = st.checkbox("👑 Supervisor Role", value=pay_rate_type=="Supervisor", key="edit_supervisor")
+                
+                with col2:
+                    clock_out_date = st.date_input("Clock-Out Date:", value=clock_out.date() if clock_out else None, key="edit_clock_out_date")
+                    clock_out_time = st.time_input("Clock-Out Time:", value=clock_out.time() if clock_out else None, key="edit_clock_out_time")
+                    
+                    pay_rate_override = st.selectbox(
+                        "Pay Rate Override:",
+                        ["Auto-calculate", "Standard", "Enhanced", "Supervisor"],
+                        index=["Auto-calculate", "Standard", "Enhanced", "Supervisor"].index(pay_rate_type) if pay_rate_type != "Auto-calculate" else 0,
+                        key="edit_pay_rate_override"
+                    )
+                    
+                    if pay_rate_override == "Auto-calculate":
+                        pay_rate_override = None
+                
+                if st.button("✏️ Update Shift", type="primary"):
+                    success, message = edit_shift(
+                        entry_id,
+                        employee_name.strip(),
+                        clock_in_date,
+                        clock_in_time,
+                        clock_out_date if clock_out_date else None,
+                        clock_out_time if clock_out_time else None,
+                        is_supervisor,
+                        pay_rate_override
+                    )
+                    if success:
+                        st.success(message)
+                        st.rerun()
+                    else:
+                        st.error(message)
+            else:
+                st.error("Shift not found. Please check the Entry ID.")
+    
+    with tab4:
+        st.subheader("🗑️ Delete Entry")
+        entry_to_delete = st.text_input("Enter Entry ID to delete:", key="delete_entry_id")
         if st.button("🗑️ Delete Entry", type="secondary"):
             if entry_to_delete:
                 success, message = delete_entry(entry_to_delete)
@@ -427,8 +640,6 @@ def show_manager_dashboard():
                     st.error(message)
             else:
                 st.warning("Please enter an Entry ID")
-    else:
-        st.info("No time entries found")
 
 if __name__ == "__main__":
     main() 
