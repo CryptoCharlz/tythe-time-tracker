@@ -13,72 +13,48 @@ from ..core.constants import DatabaseConstants, ErrorMessages, PayRateType
 logger = logging.getLogger(__name__)
 
 
+def get_db_connection() -> Optional[connection]:
+    """Create and return a database connection using Streamlit secrets.
+    
+    Returns:
+        Database connection if successful, None otherwise.
+    """
+    try:
+        import streamlit as st
+        
+        conn = psycopg2.connect(
+            host=st.secrets["SUPABASE"]["HOST"],
+            database=st.secrets["SUPABASE"]["DATABASE"],
+            user=st.secrets["SUPABASE"]["USER"],
+            password=st.secrets["SUPABASE"]["PASSWORD"],
+            port=st.secrets["SUPABASE"]["PORT"],
+            # Force IPv4 connection to avoid IPv6 issues
+            options='-c family=ipv4'
+        )
+        return conn
+    except Exception as e:
+        logger.error(f"Database connection failed: {e}")
+        return None
+
+
 class DatabaseConnection:
     """Manages database connections and provides connection pooling."""
     
-    def __init__(self, config: dict) -> None:
+    def __init__(self, db_connection: connection) -> None:
         """Initialize the database connection manager.
         
         Args:
-            config: Database configuration dictionary containing:
-                - HOST: Database host
-                - DATABASE: Database name
-                - USER: Database user
-                - PASSWORD: Database password
-                - PORT: Database port
+            db_connection: An existing database connection.
         """
-        self.config = config
-        self._pool: Optional[SimpleConnectionPool] = None
-        self._min_connections = 1
-        self._max_connections = 10
-    
-    def initialize_pool(self) -> None:
-        """Initialize the connection pool."""
-        try:
-            self._pool = SimpleConnectionPool(
-                minconn=self._min_connections,
-                maxconn=self._max_connections,
-                host=self.config["HOST"],
-                database=self.config["DATABASE"],
-                user=self.config["USER"],
-                password=self.config["PASSWORD"],
-                port=self.config["PORT"],
-                options='-c family=ipv4'
-            )
-            logger.info("Database connection pool initialized successfully")
-        except Exception as e:
-            logger.error(f"Failed to initialize database connection pool: {e}")
-            raise ConnectionError(ErrorMessages.DB_CONNECTION_FAILED) from e
+        self.connection = db_connection
     
     def get_connection(self) -> connection:
-        """Get a connection from the pool.
+        """Get the database connection.
         
         Returns:
-            A database connection from the pool.
-            
-        Raises:
-            ConnectionError: If the pool is not initialized or no connections available.
+            The database connection.
         """
-        if not self._pool:
-            self.initialize_pool()
-        
-        try:
-            return self._pool.getconn()
-        except Exception as e:
-            logger.error(f"Failed to get database connection: {e}")
-            raise ConnectionError(ErrorMessages.DB_CONNECTION_FAILED) from e
-    
-    def return_connection(self, conn: connection) -> None:
-        """Return a connection to the pool.
-        
-        Args:
-            conn: The database connection to return.
-        """
-        if self._pool:
-            try:
-                self._pool.putconn(conn)
-            except Exception as e:
-                logger.error(f"Failed to return database connection: {e}")
+        return self.connection
     
     @contextmanager
     def get_cursor(self):
@@ -90,29 +66,24 @@ class DatabaseConnection:
         Raises:
             ConnectionError: If database connection fails.
         """
-        conn = None
         cursor = None
         try:
-            conn = self.get_connection()
-            cursor = conn.cursor()
+            cursor = self.connection.cursor()
             yield cursor
-            conn.commit()
+            self.connection.commit()
         except Exception as e:
-            if conn:
-                conn.rollback()
+            self.connection.rollback()
             logger.error(f"Database operation failed: {e}")
             raise
         finally:
             if cursor:
                 cursor.close()
-            if conn:
-                self.return_connection(conn)
     
     def close(self) -> None:
-        """Close the connection pool."""
-        if self._pool:
-            self._pool.closeall()
-            logger.info("Database connection pool closed")
+        """Close the database connection."""
+        if self.connection:
+            self.connection.close()
+            logger.info("Database connection closed")
     
     def test_connection(self) -> bool:
         """Test the database connection.

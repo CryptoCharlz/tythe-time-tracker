@@ -113,7 +113,7 @@ class AppConfig:
         Returns:
             AppConfig instance.
         """
-        version = os.getenv("APP_VERSION", "1.0.1")
+        version = os.getenv("APP_VERSION", "2.0.0")
         debug = os.getenv("DEBUG", "false").lower() == "true"
         log_level = os.getenv("LOG_LEVEL", "INFO")
         manager_password = os.getenv("MANAGER_PASSWORD")
@@ -135,7 +135,7 @@ class AppConfig:
         import streamlit as st
         
         try:
-            version = "1.0.1"  # Default version
+            version = "2.0.0"  # Default version
             debug = False  # Default debug setting
             log_level = "INFO"  # Default log level
             manager_password = st.secrets.get("MANAGER_PASSWORD")
