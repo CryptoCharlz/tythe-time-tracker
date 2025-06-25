@@ -1,7 +1,7 @@
 import streamlit as st
 import psycopg2
 import os
-from datetime import datetime
+from datetime import datetime, date
 import uuid
 from dotenv import load_dotenv
 from export_functions import (
@@ -535,8 +535,21 @@ def show_export_interface():
     
     with col2:
         if date_option == "Custom Range":
-            start_date = st.date_input("From Date:", key="start_date")
-            end_date = st.date_input("To Date:", key="end_date")
+            # Default to current month
+            today = date.today()
+            first_of_month = today.replace(day=1)
+            
+            start_date = st.date_input("From Date:", value=first_of_month, key="start_date")
+            end_date = st.date_input("To Date:", value=today, key="end_date")
+            
+            # Validate date range
+            if start_date and end_date:
+                if end_date < start_date:
+                    st.error("❌ End date cannot be before start date!")
+                    return
+                st.info(f"Custom Range: {start_date} to {end_date}")
+            else:
+                st.warning("Please select both start and end dates")
         else:
             start_date, end_date = get_date_range(date_option)
             st.info(f"Selected: {start_date} to {end_date}")
