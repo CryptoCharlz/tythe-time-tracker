@@ -145,7 +145,17 @@ def calculate_staff_summary(entries):
     staff_summary = {}
     
     for entry in entries:
-        entry_id, employee, clock_in, clock_out, pay_rate_type, created_at = entry
+        # Handle both TimeEntry objects and tuples for backward compatibility
+        if hasattr(entry, 'employee'):
+            # TimeEntry object
+            employee = entry.employee
+            clock_in = entry.clock_in
+            clock_out = entry.clock_out
+            pay_rate_type = entry.pay_rate_type.value if hasattr(entry.pay_rate_type, 'value') else entry.pay_rate_type
+        else:
+            # Tuple format (backward compatibility)
+            entry_id, employee, clock_in, clock_out, pay_rate_type, created_at = entry
+        
         is_supervisor = (pay_rate_type == 'Supervisor')
         split = split_shift_by_rate(clock_in, clock_out, is_supervisor)
         
@@ -191,7 +201,13 @@ def export_to_excel(entries, filename="timesheet_export.xlsx", start_date=None, 
     staff_summary = calculate_staff_summary(entries)
     
     # Sort entries by employee (case-insensitive, trimmed) and clock_in
-    entries_sorted = sorted(entries, key=lambda e: (e[1].strip().lower(), e[2]))
+    # Handle both TimeEntry objects and tuples for backward compatibility
+    if entries and hasattr(entries[0], 'employee'):
+        # TimeEntry objects
+        entries_sorted = sorted(entries, key=lambda e: (e.employee.strip().lower(), e.clock_in))
+    else:
+        # Tuple format (backward compatibility)
+        entries_sorted = sorted(entries, key=lambda e: (e[1].strip().lower(), e[2]))
     
     # Prepare hierarchical data for Excel
     hierarchical_data = []
@@ -214,7 +230,17 @@ def export_to_excel(entries, filename="timesheet_export.xlsx", start_date=None, 
         
         # Add individual shifts for this staff member
         for entry in entries_sorted:
-            entry_id, emp, clock_in, clock_out, pay_rate_type, created_at = entry
+            # Handle both TimeEntry objects and tuples for backward compatibility
+            if hasattr(entry, 'employee'):
+                # TimeEntry object
+                emp = entry.employee
+                clock_in = entry.clock_in
+                clock_out = entry.clock_out
+                pay_rate_type = entry.pay_rate_type.value if hasattr(entry.pay_rate_type, 'value') else entry.pay_rate_type
+            else:
+                # Tuple format (backward compatibility)
+                entry_id, emp, clock_in, clock_out, pay_rate_type, created_at = entry
+            
             if emp.strip().lower() == employee.strip().lower():
                 is_supervisor = (pay_rate_type == 'Supervisor')
                 split = split_shift_by_rate(clock_in, clock_out, is_supervisor)
@@ -321,7 +347,13 @@ def export_to_pdf(entries, filename="timesheet_export.pdf"):
     story.append(Spacer(1, 20))
     
     # Sort entries by employee and clock_in
-    entries_sorted = sorted(entries, key=lambda e: (e[1].strip().lower(), e[2]))
+    # Handle both TimeEntry objects and tuples for backward compatibility
+    if entries and hasattr(entries[0], 'employee'):
+        # TimeEntry objects
+        entries_sorted = sorted(entries, key=lambda e: (e.employee.strip().lower(), e.clock_in))
+    else:
+        # Tuple format (backward compatibility)
+        entries_sorted = sorted(entries, key=lambda e: (e[1].strip().lower(), e[2]))
     
     # For each staff member, show totals and then their shifts
     for employee, data in staff_summary.items():
@@ -347,7 +379,17 @@ def export_to_pdf(entries, filename="timesheet_export.pdf"):
         # Individual shifts for this staff member
         shift_rows = [["Date", "Clock-In", "Clock-Out", "Standard", "Enhanced", "Supervisor", "Total", "Type"]]
         for entry in entries_sorted:
-            entry_id, emp, clock_in, clock_out, pay_rate_type, created_at = entry
+            # Handle both TimeEntry objects and tuples for backward compatibility
+            if hasattr(entry, 'employee'):
+                # TimeEntry object
+                emp = entry.employee
+                clock_in = entry.clock_in
+                clock_out = entry.clock_out
+                pay_rate_type = entry.pay_rate_type.value if hasattr(entry.pay_rate_type, 'value') else entry.pay_rate_type
+            else:
+                # Tuple format (backward compatibility)
+                entry_id, emp, clock_in, clock_out, pay_rate_type, created_at = entry
+            
             if emp.strip().lower() == employee.strip().lower():
                 is_supervisor = (pay_rate_type == 'Supervisor')
                 split = split_shift_by_rate(clock_in, clock_out, is_supervisor)
