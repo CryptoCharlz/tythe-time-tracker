@@ -8,6 +8,7 @@ from export_functions import (
     get_date_range, get_timesheet_data, export_to_excel, 
     export_to_pdf, get_download_link, calculate_summary, split_shift_by_rate, get_hierarchical_staff_shift_data
 )
+import pandas as pd
 
 # Load environment variables
 load_dotenv()
@@ -818,7 +819,13 @@ def show_manager_dashboard():
         entries = get_all_timesheets()
         if entries:
             all_data = get_hierarchical_staff_shift_data(entries)
-            st.dataframe(all_data, use_container_width=True)
+            # Set column order to match export
+            columns = [
+                'Staff Name', 'Date', 'Clock-In', 'Clock-Out',
+                'Standard Hours', 'Enhanced Hours', 'Supervisor Hours',
+                'Total Hours', 'Total Shifts', 'Pay Rate Type', 'Supervisor Flag'
+            ]
+            st.dataframe(pd.DataFrame(all_data, columns=columns), use_container_width=True)
         else:
             st.info("No time entries found")
     
