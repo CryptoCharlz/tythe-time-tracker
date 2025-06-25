@@ -46,9 +46,26 @@ def init_database():
                     employee TEXT NOT NULL,
                     clock_in TIMESTAMPTZ NOT NULL,
                     clock_out TIMESTAMPTZ,
+                    pay_rate_type TEXT DEFAULT 'Standard',
                     created_at TIMESTAMPTZ DEFAULT NOW()
                 );
             """)
+            
+            # Check if pay_rate_type column exists, add if not
+            cursor.execute("""
+                SELECT column_name 
+                FROM information_schema.columns 
+                WHERE table_name = 'time_entries' 
+                AND column_name = 'pay_rate_type'
+            """)
+            
+            if not cursor.fetchone():
+                cursor.execute("""
+                    ALTER TABLE time_entries 
+                    ADD COLUMN pay_rate_type TEXT DEFAULT 'Standard'
+                """)
+                st.success("✅ Database updated with pay rate functionality")
+            
             conn.commit()
             cursor.close()
             conn.close()
@@ -56,7 +73,7 @@ def init_database():
             st.error(f"Database initialization failed: {e}")
 
 # Database operations
-def clock_in(employee_name):
+def clock_in(employee_name, is_supervisor=False):
     """Clock in an employee"""
     conn = get_db_connection()
     if not conn:
@@ -76,16 +93,21 @@ def clock_in(employee_name):
             conn.close()
             return False, f"{employee_name} already has an open shift"
         
+        # Determine pay rate type
+        pay_rate_type = determine_pay_rate_type(is_supervisor)
+        
         # Insert new clock-in record
         cursor.execute("""
-            INSERT INTO time_entries (employee, clock_in)
-            VALUES (%s, NOW())
-        """, (employee_name,))
+            INSERT INTO time_entries (employee, clock_in, pay_rate_type)
+            VALUES (%s, NOW(), %s)
+        """, (employee_name, pay_rate_type))
         
         conn.commit()
         cursor.close()
         conn.close()
-        return True, f"{employee_name} clocked in successfully"
+        
+        rate_message = f" ({pay_rate_type} Rate)"
+        return True, f"{employee_name} clocked in successfully{rate_message}"
         
     except Exception as e:
         conn.rollback()
@@ -143,7 +165,7 @@ def get_employee_timesheet(employee_name):
     try:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT id, clock_in, clock_out, created_at
+            SELECT id, clock_in, clock_out, pay_rate_type, created_at
             FROM time_entries 
             WHERE employee = %s
             ORDER BY clock_in DESC
@@ -169,7 +191,7 @@ def get_all_timesheets():
     try:
         cursor = conn.cursor()
         cursor.execute("""
-            SELECT id, employee, clock_in, clock_out, created_at
+            SELECT id, employee, clock_in, clock_out, pay_rate_type, created_at
             FROM time_entries 
             ORDER BY clock_in DESC
         """)
@@ -205,6 +227,22 @@ def delete_entry(entry_id):
         conn.close()
         return False, f"Error deleting entry: {e}"
 
+def determine_pay_rate_type(is_supervisor, clock_in_time=None):
+    """Determine the pay rate type based on time and supervisor status"""
+    if is_supervisor:
+        return "Supervisor"
+    
+    if clock_in_time is None:
+        clock_in_time = datetime.now()
+    
+    hour = clock_in_time.hour
+    
+    # Enhanced rate: 7:00 PM (19:00) to 4:00 AM (04:00)
+    if hour >= 19 or hour < 4:
+        return "Enhanced"
+    else:
+        return "Standard"
+
 # Initialize database on app start
 init_database()
 
@@ -212,6 +250,17 @@ init_database()
 def main():
     st.title("🕒 The Tythe Barn - Time Tracker")
     st.markdown("---")
+    
+    # Pay rate information
+    with st.expander("💰 Pay Rate Information", expanded=False):
+        st.markdown("""
+        **Pay Rate Rules:**
+        - **Standard Rate:** Regular hours (4:00 AM - 7:00 PM)
+        - **Enhanced Rate:** Night hours (7:00 PM - 4:00 AM) 
+        - **Supervisor Rate:** When supervisor role is selected (overrides other rates)
+        
+        **Note:** If you clock in during enhanced hours AND select supervisor role, you'll receive the supervisor rate.
+        """)
     
     # Sidebar for navigation
     page = st.sidebar.selectbox(
@@ -237,11 +286,14 @@ def show_employee_interface():
         employee_name = st.text_input("Enter your full name:", key="employee_name")
         
         if employee_name.strip():
+            # Add supervisor tick box
+            is_supervisor = st.checkbox("👑 Supervisor Role", key="supervisor_checkbox")
+            
             col_in, col_out = st.columns(2)
             
             with col_in:
                 if st.button("🟢 Clock In", type="primary", use_container_width=True):
-                    success, message = clock_in(employee_name.strip())
+                    success, message = clock_in(employee_name.strip(), is_supervisor)
                     if success:
                         st.success(message)
                     else:
@@ -265,7 +317,7 @@ def show_employee_interface():
             if conn:
                 cursor = conn.cursor()
                 cursor.execute("""
-                    SELECT clock_in FROM time_entries 
+                    SELECT clock_in, pay_rate_type FROM time_entries 
                     WHERE employee = %s AND clock_out IS NULL
                     ORDER BY clock_in DESC
                     LIMIT 1
@@ -276,8 +328,10 @@ def show_employee_interface():
                 conn.close()
                 
                 if open_shift:
+                    clock_in_time, pay_rate_type = open_shift
                     st.success(f"✅ {name} is currently clocked in")
-                    st.info(f"Clocked in at: {open_shift[0].strftime('%Y-%m-%d %H:%M:%S')}")
+                    st.info(f"Clocked in at: {clock_in_time.strftime('%Y-%m-%d %H:%M:%S')}")
+                    st.info(f"Pay Rate: {pay_rate_type}")
                 else:
                     st.info(f"ℹ️ {name} is not currently clocked in")
 
@@ -296,12 +350,13 @@ def show_personal_timesheet():
             # Prepare data for display
             timesheet_data = []
             for entry in entries:
-                entry_id, clock_in, clock_out, created_at = entry
+                entry_id, clock_in, clock_out, pay_rate_type, created_at = entry
                 timesheet_data.append({
                     "Date": clock_in.strftime('%Y-%m-%d'),
                     "Clock-In": clock_in.strftime('%H:%M:%S'),
                     "Clock-Out": clock_out.strftime('%H:%M:%S') if clock_out else "🟢 Still Open",
-                    "Duration": str(clock_out - clock_in).split('.')[0] if clock_out else "In Progress"
+                    "Duration": str(clock_out - clock_in).split('.')[0] if clock_out else "In Progress",
+                    "Pay Rate Type": pay_rate_type
                 })
             
             st.dataframe(timesheet_data, use_container_width=True)
@@ -345,13 +400,14 @@ def show_manager_dashboard():
         # Prepare data for display
         all_data = []
         for entry in entries:
-            entry_id, employee, clock_in, clock_out, created_at = entry
+            entry_id, employee, clock_in, clock_out, pay_rate_type, created_at = entry
             all_data.append({
                 "Employee": employee,
                 "Date": clock_in.strftime('%Y-%m-%d'),
                 "Clock-In": clock_in.strftime('%H:%M:%S'),
                 "Clock-Out": clock_out.strftime('%H:%M:%S') if clock_out else "🟢 Still Open",
                 "Duration": str(clock_out - clock_in).split('.')[0] if clock_out else "In Progress",
+                "Pay Rate Type": pay_rate_type,
                 "Entry ID": str(entry_id)
             })
         
