@@ -108,6 +108,7 @@ def split_shift_by_rate(clock_in, clock_out, is_supervisor):
     Returns a dict: {'Standard': hours, 'Enhanced': hours, 'Supervisor': hours}
     All times are assumed to be UTC and will be converted to BST for rate logic.
     Splits at 19:00 (7PM) and 04:00 (4AM) BST boundaries.
+    Handles overnight shifts correctly.
     """
     if not clock_out:
         return {'Standard': 0, 'Enhanced': 0, 'Supervisor': 0}
@@ -117,26 +118,25 @@ def split_shift_by_rate(clock_in, clock_out, is_supervisor):
     # Convert to BST and make naive for comparison
     bst_in = get_bst_time(clock_in).replace(tzinfo=None)
     bst_out = get_bst_time(clock_out).replace(tzinfo=None)
-    # Boundaries
+    if bst_out <= bst_in:
+        return {'Standard': 0, 'Enhanced': 0, 'Supervisor': 0}
+    # Enhanced window: 19:00 today to 04:00 next day
     day = bst_in.date()
     seven_pm = datetime.combine(day, dtime(19, 0))
     four_am_next = datetime.combine(day + timedelta(days=1), dtime(4, 0))
-    # If shift ends before 7PM
-    if bst_out <= seven_pm:
-        std = (bst_out - bst_in).total_seconds() / 3600
-        return {'Standard': round(std, 2), 'Enhanced': 0, 'Supervisor': 0}
-    # If shift starts after 7PM and before 4AM
-    if bst_in >= seven_pm and bst_in < four_am_next:
-        enh = (min(bst_out, four_am_next) - bst_in).total_seconds() / 3600
-        std = max((bst_out - four_am_next).total_seconds() / 3600, 0) if bst_out > four_am_next else 0
-        return {'Standard': round(std, 2), 'Enhanced': round(enh, 2), 'Supervisor': 0}
-    # If shift starts before 7PM and ends after 7PM
-    std = (seven_pm - bst_in).total_seconds() / 3600 if bst_in < seven_pm else 0
-    enh = (min(bst_out, four_am_next) - max(bst_in, seven_pm)).total_seconds() / 3600 if bst_out > seven_pm else 0
-    std2 = (bst_out - four_am_next).total_seconds() / 3600 if bst_out > four_am_next else 0
+    # Calculate overlap with enhanced window
+    enhanced_start = seven_pm
+    enhanced_end = four_am_next
+    # Enhanced: overlap with [enhanced_start, enhanced_end)
+    enh_start = max(bst_in, enhanced_start)
+    enh_end = min(bst_out, enhanced_end)
+    enhanced_hours = max((enh_end - enh_start).total_seconds() / 3600, 0) if enh_start < enh_end else 0
+    # Standard: the rest
+    total_hours = (bst_out - bst_in).total_seconds() / 3600
+    standard_hours = total_hours - enhanced_hours
     return {
-        'Standard': round(std + max(std2, 0), 2),
-        'Enhanced': round(max(enh, 0), 2),
+        'Standard': round(standard_hours, 2),
+        'Enhanced': round(enhanced_hours, 2),
         'Supervisor': 0
     }
 

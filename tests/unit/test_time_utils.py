@@ -5,6 +5,7 @@ from datetime import datetime, timezone, timedelta
 
 from tythe_time_tracker.utils.time_utils import TimeUtils
 from tythe_time_tracker.core.constants import TimeConstants
+from export_functions import split_shift_by_rate, get_bst_time
 
 
 class TestTimeUtils:
@@ -65,12 +66,12 @@ class TestTimeUtils:
         seven_pm_bst = datetime(2024, 1, 1, 18, 0, 0, tzinfo=timezone.utc)  # 7 PM UTC = 8 PM BST
         assert TimeUtils.is_enhanced_hours(seven_pm_bst)
         
-        # 4 AM BST boundary (should be enhanced)
-        four_am_bst = datetime(2024, 1, 1, 3, 0, 0, tzinfo=timezone.utc)  # 3 AM UTC = 4 AM BST
-        assert TimeUtils.is_enhanced_hours(four_am_bst)
+        # 3:59 AM BST boundary (should be enhanced)
+        three_fifty_nine_bst = datetime(2024, 1, 1, 2, 59, 0, tzinfo=timezone.utc)  # 2:59 UTC = 3:59 BST
+        assert TimeUtils.is_enhanced_hours(three_fifty_nine_bst)
         
         # 4 AM BST boundary (should be standard)
-        four_am_bst_standard = datetime(2024, 1, 1, 4, 0, 0, tzinfo=timezone.utc)  # 4 AM UTC = 5 AM BST
+        four_am_bst_standard = datetime(2024, 1, 1, 3, 0, 0, tzinfo=timezone.utc)  # 3:00 UTC = 4:00 BST
         assert not TimeUtils.is_enhanced_hours(four_am_bst_standard)
     
     def test_format_duration_with_end_time(self):
@@ -169,4 +170,21 @@ class TestTimeUtils:
     def test_parse_time_string_empty_string(self):
         """Test parsing empty time string."""
         result = TimeUtils.parse_time_string("")
-        assert result is None 
+        assert result is None
+    
+    def test_split_shift_by_rate_overnight(self):
+        """Test that an overnight shift is split correctly between enhanced and standard hours."""
+        # Shift: 23:44 to 07:45 BST (assume BST, so input as UTC)
+        # 23:44 BST = 22:44 UTC, 07:45 BST = 06:45 UTC
+        from datetime import datetime, timezone, timedelta
+        clock_in = datetime(2025, 6, 25, 22, 44, tzinfo=timezone.utc)  # 23:44 BST
+        clock_out = datetime(2025, 6, 26, 6, 45, tzinfo=timezone.utc)  # 07:45 BST
+        result = split_shift_by_rate(clock_in, clock_out, is_supervisor=False)
+        # Enhanced: 23:44–04:00 (4:00 BST = 3:00 UTC next day)
+        enhanced_end = datetime(2025, 6, 26, 3, 0, tzinfo=timezone.utc)  # 04:00 BST
+        enhanced_hours = (enhanced_end - clock_in).total_seconds() / 3600
+        # Standard: 04:00–07:45
+        standard_hours = (clock_out - enhanced_end).total_seconds() / 3600
+        assert abs(result['Enhanced'] - round(enhanced_hours, 2)) < 0.01, f"Enhanced hours wrong: {result['Enhanced']} != {round(enhanced_hours, 2)}"
+        assert abs(result['Standard'] - round(standard_hours, 2)) < 0.01, f"Standard hours wrong: {result['Standard']} != {round(standard_hours, 2)}"
+        assert result['Supervisor'] == 0 
