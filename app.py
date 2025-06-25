@@ -586,6 +586,14 @@ def show_manager_dashboard():
             if shift:
                 entry_id, employee, clock_in, clock_out, pay_rate_type, created_at = shift
                 
+                # Debug info (can be removed later)
+                with st.expander("🔍 Debug Info", expanded=False):
+                    st.write(f"Entry ID: {entry_id}")
+                    st.write(f"Employee: {employee}")
+                    st.write(f"Clock In: {clock_in}")
+                    st.write(f"Clock Out: {clock_out}")
+                    st.write(f"Pay Rate: {pay_rate_type}")
+                
                 col1, col2 = st.columns(2)
                 
                 with col1:
@@ -595,13 +603,21 @@ def show_manager_dashboard():
                     is_supervisor = st.checkbox("👑 Supervisor Role", value=pay_rate_type=="Supervisor", key="edit_supervisor")
                 
                 with col2:
-                    clock_out_date = st.date_input("Clock-Out Date:", value=clock_out.date() if clock_out else None, key="edit_clock_out_date")
-                    clock_out_time = st.time_input("Clock-Out Time:", value=clock_out.time() if clock_out else None, key="edit_clock_out_time")
+                    # Handle None clock_out values properly
+                    if clock_out:
+                        default_clock_out_date = clock_out.date()
+                        default_clock_out_time = clock_out.time()
+                    else:
+                        default_clock_out_date = None
+                        default_clock_out_time = None
+                    
+                    clock_out_date = st.date_input("Clock-Out Date (optional):", value=default_clock_out_date, key="edit_clock_out_date")
+                    clock_out_time = st.time_input("Clock-Out Time (optional):", value=default_clock_out_time, key="edit_clock_out_time")
                     
                     pay_rate_override = st.selectbox(
                         "Pay Rate Override:",
                         ["Auto-calculate", "Standard", "Enhanced", "Supervisor"],
-                        index=["Auto-calculate", "Standard", "Enhanced", "Supervisor"].index(pay_rate_type) if pay_rate_type != "Auto-calculate" else 0,
+                        index=["Auto-calculate", "Standard", "Enhanced", "Supervisor"].index(pay_rate_type) if pay_rate_type in ["Standard", "Enhanced", "Supervisor"] else 0,
                         key="edit_pay_rate_override"
                     )
                     
@@ -609,21 +625,24 @@ def show_manager_dashboard():
                         pay_rate_override = None
                 
                 if st.button("✏️ Update Shift", type="primary"):
-                    success, message = edit_shift(
-                        entry_id,
-                        employee_name.strip(),
-                        clock_in_date,
-                        clock_in_time,
-                        clock_out_date if clock_out_date else None,
-                        clock_out_time if clock_out_time else None,
-                        is_supervisor,
-                        pay_rate_override
-                    )
-                    if success:
-                        st.success(message)
-                        st.rerun()
+                    if employee_name.strip():
+                        success, message = edit_shift(
+                            entry_id,
+                            employee_name.strip(),
+                            clock_in_date,
+                            clock_in_time,
+                            clock_out_date if clock_out_date else None,
+                            clock_out_time if clock_out_time else None,
+                            is_supervisor,
+                            pay_rate_override
+                        )
+                        if success:
+                            st.success(message)
+                            st.rerun()
+                        else:
+                            st.error(message)
                     else:
-                        st.error(message)
+                        st.warning("Please enter an employee name")
             else:
                 st.error("Shift not found. Please check the Entry ID.")
     
