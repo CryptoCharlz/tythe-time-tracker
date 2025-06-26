@@ -108,7 +108,7 @@ def show_all_entries_tab() -> None:
             st.markdown("---")
             
             # List shifts
-            for entry in sorted(shifts, key=lambda e: e.clock_in):
+            for entry in sorted(shifts, key=lambda e: e.clock_in, reverse=True):
                 is_supervisor = (entry.pay_rate_type == 'Supervisor')
                 split = split_shift_by_rate(entry.clock_in, entry.clock_out, is_supervisor)
                 
