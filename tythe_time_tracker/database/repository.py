@@ -87,7 +87,7 @@ class TimeEntryRepository:
                            {DatabaseConstants.CLOCK_IN_COLUMN}, {DatabaseConstants.CLOCK_OUT_COLUMN},
                            {DatabaseConstants.PAY_RATE_TYPE_COLUMN}, {DatabaseConstants.CREATED_AT_COLUMN}
                     FROM {DatabaseConstants.TIME_ENTRIES_TABLE}
-                    WHERE {DatabaseConstants.EMPLOYEE_COLUMN} = %s 
+                    WHERE LOWER({DatabaseConstants.EMPLOYEE_COLUMN}) = LOWER(%s) 
                     AND {DatabaseConstants.CLOCK_OUT_COLUMN} IS NULL
                     ORDER BY {DatabaseConstants.CLOCK_IN_COLUMN} DESC
                     LIMIT 1
@@ -157,7 +157,7 @@ class TimeEntryRepository:
                            {DatabaseConstants.CLOCK_IN_COLUMN}, {DatabaseConstants.CLOCK_OUT_COLUMN},
                            {DatabaseConstants.PAY_RATE_TYPE_COLUMN}, {DatabaseConstants.CREATED_AT_COLUMN}
                     FROM {DatabaseConstants.TIME_ENTRIES_TABLE}
-                    WHERE {DatabaseConstants.EMPLOYEE_COLUMN} = %s
+                    WHERE LOWER({DatabaseConstants.EMPLOYEE_COLUMN}) = LOWER(%s)
                 """
                 params = [employee.strip()]
                 

@@ -61,7 +61,7 @@ def get_timesheet_data(employee_name=None, start_date=None, end_date=None, is_ma
         params = []
         
         if employee_name and not is_manager:
-            query += " AND employee = %s"
+            query += " AND LOWER(employee) = LOWER(%s)"
             params.append(employee_name)
         
         if start_date:
