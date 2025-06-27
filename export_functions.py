@@ -120,14 +120,19 @@ def split_shift_by_rate(clock_in, clock_out, is_supervisor):
     bst_out = get_bst_time(clock_out).replace(tzinfo=None)
     if bst_out <= bst_in:
         return {'Standard': 0, 'Enhanced': 0, 'Supervisor': 0}
-    # Enhanced window: 19:00 today to 04:00 next day
-    day = bst_in.date()
-    seven_pm = datetime.combine(day, dtime(19, 0))
-    four_am_next = datetime.combine(day + timedelta(days=1), dtime(4, 0))
+    
+    # Enhanced window: 19:00 BST to 04:00 BST next day
+    # Always ends at 4:00 BST on the day after the shift starts
+    if bst_in.hour < 4:
+        # Shift starts in early morning, enhanced window is 19:00 previous day to 04:00 current day
+        enhanced_start = datetime.combine(bst_in.date() - timedelta(days=1), dtime(19, 0))
+        enhanced_end = datetime.combine(bst_in.date(), dtime(4, 0))
+    else:
+        # Shift starts after 4 AM, enhanced window is 19:00 current day to 04:00 next day
+        enhanced_start = datetime.combine(bst_in.date(), dtime(19, 0))
+        enhanced_end = datetime.combine(bst_in.date() + timedelta(days=1), dtime(4, 0))
+    
     # Calculate overlap with enhanced window
-    enhanced_start = seven_pm
-    enhanced_end = four_am_next
-    # Enhanced: overlap with [enhanced_start, enhanced_end)
     enh_start = max(bst_in, enhanced_start)
     enh_end = min(bst_out, enhanced_end)
     enhanced_hours = max((enh_end - enh_start).total_seconds() / 3600, 0) if enh_start < enh_end else 0
@@ -257,9 +262,9 @@ def export_to_excel(entries, filename="timesheet_export.xlsx", start_date=None, 
                 
                 hierarchical_data.append({
                     'Staff Name': f"  └─ {employee}",
-                    'Date': clock_in.strftime('%Y-%m-%d'),
-                    'Clock-In': clock_in.strftime('%H:%M:%S'),
-                    'Clock-Out': clock_out.strftime('%H:%M:%S') if clock_out else 'In Progress',
+                    'Date': get_bst_time(clock_in).strftime('%Y-%m-%d'),
+                    'Clock-In': get_bst_time(clock_in).strftime('%H:%M:%S'),
+                    'Clock-Out': get_bst_time(clock_out).strftime('%H:%M:%S') if clock_out else 'In Progress',
                     'Standard Hours': split['Standard'],
                     'Enhanced Hours': split['Enhanced'],
                     'Supervisor Hours': split['Supervisor'],
@@ -402,9 +407,9 @@ def export_to_pdf(entries, filename="timesheet_export.pdf"):
                 else:
                     shift_display = f"Standard ({split['Standard']}h)"
                 shift_rows.append([
-                    clock_in.strftime('%Y-%m-%d'),
-                    clock_in.strftime('%H:%M'),
-                    clock_out.strftime('%H:%M') if clock_out else 'In Progress',
+                    get_bst_time(clock_in).strftime('%Y-%m-%d'),
+                    get_bst_time(clock_in).strftime('%H:%M'),
+                    get_bst_time(clock_out).strftime('%H:%M') if clock_out else 'In Progress',
                     str(split['Standard']),
                     str(split['Enhanced']),
                     str(split['Supervisor']),
@@ -483,9 +488,9 @@ def get_hierarchical_staff_shift_data(entries):
                     shift_display = f"Standard ({split['Standard']}h)"
                 hierarchical_data.append({
                     'Staff Name': f"  └─ {employee}",
-                    'Date': clock_in.strftime('%Y-%m-%d'),
-                    'Clock-In': clock_in.strftime('%H:%M:%S'),
-                    'Clock-Out': clock_out.strftime('%H:%M:%S') if clock_out else 'In Progress',
+                    'Date': get_bst_time(clock_in).strftime('%Y-%m-%d'),
+                    'Clock-In': get_bst_time(clock_in).strftime('%H:%M:%S'),
+                    'Clock-Out': get_bst_time(clock_out).strftime('%H:%M:%S') if clock_out else 'In Progress',
                     'Standard Hours': split['Standard'],
                     'Enhanced Hours': split['Enhanced'],
                     'Supervisor Hours': split['Supervisor'],

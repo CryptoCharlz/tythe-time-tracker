@@ -7,6 +7,7 @@ from typing import Tuple
 
 from ...core.services import TimeTrackingService
 from ...database.connection import get_db_connection
+from ...utils.time_utils import TimeUtils
 
 
 def show_employee_status(employee_name: str) -> None:
@@ -18,7 +19,9 @@ def show_employee_status(employee_name: str) -> None:
     
     if open_shift:
         st.success(f"✅ {employee_name} is currently clocked in")
-        st.info(f"Clocked in at: {open_shift.clock_in.strftime('%Y-%m-%d %H:%M:%S')}")
+        # Convert UTC time to BST for display
+        bst_time = TimeUtils.convert_to_bst(open_shift.clock_in)
+        st.info(f"Clocked in at: {bst_time.strftime('%Y-%m-%d %H:%M:%S')} BST")
         st.info(f"Pay Rate: {open_shift.pay_rate_type}")
     else:
         st.info(f"ℹ️ {employee_name} is not currently clocked in")

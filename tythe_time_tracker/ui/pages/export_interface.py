@@ -8,6 +8,7 @@ from datetime import datetime, date
 from typing import Optional
 
 from ...core.services import TimeTrackingService
+from ...utils.time_utils import TimeUtils
 from export_functions import (
     get_date_range, get_timesheet_data, export_to_excel, 
     export_to_pdf, calculate_summary, split_shift_by_rate
@@ -158,11 +159,16 @@ def show_preview_data(entries: list, start_date: date, end_date: date) -> None:
                 entry_id, emp, clock_in, clock_out, pay_rate_type, created_at = entry
                 is_supervisor = (pay_rate_type == 'Supervisor')
                 split = split_shift_by_rate(clock_in, clock_out, is_supervisor)
+                
+                # Convert UTC times to BST for display
+                bst_clock_in = TimeUtils.convert_to_bst(clock_in)
+                bst_clock_out = TimeUtils.convert_to_bst(clock_out) if clock_out else None
+                
                 detailed_data.append({
                     "Employee": emp,
-                    "Date": clock_in.strftime('%Y-%m-%d'),
-                    "Clock-In": clock_in.strftime('%H:%M:%S'),
-                    "Clock-Out": clock_out.strftime('%H:%M:%S') if clock_out else "In Progress",
+                    "Date": bst_clock_in.strftime('%Y-%m-%d'),
+                    "Clock-In": bst_clock_in.strftime('%H:%M:%S'),
+                    "Clock-Out": bst_clock_out.strftime('%H:%M:%S') if bst_clock_out else "In Progress",
                     "Standard Hours": split['Standard'],
                     "Enhanced Hours": split['Enhanced'],
                     "Supervisor Hours": split['Supervisor'],

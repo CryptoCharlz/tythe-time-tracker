@@ -11,6 +11,7 @@ from collections import defaultdict
 from ...core.services import TimeTrackingService
 from ...core.models import TimeEntry
 from ...config.settings import get_app_config
+from ...utils.time_utils import TimeUtils
 from export_functions import (
     export_to_excel, export_to_pdf, split_shift_by_rate
 )
@@ -123,11 +124,17 @@ def show_all_entries_tab() -> None:
                 
                 col1, col2, col3, col4, col5 = st.columns([2, 2, 2, 3, 1])
                 with col1:
-                    st.markdown(entry.clock_in.strftime('%Y-%m-%d'))
+                    # Convert UTC to BST for display
+                    bst_clock_in = TimeUtils.convert_to_bst(entry.clock_in)
+                    st.markdown(bst_clock_in.strftime('%Y-%m-%d'))
                 with col2:
-                    st.markdown(entry.clock_in.strftime('%H:%M'))
+                    st.markdown(bst_clock_in.strftime('%H:%M'))
                 with col3:
-                    st.markdown(entry.clock_out.strftime('%H:%M') if entry.clock_out else 'In Progress')
+                    if entry.clock_out:
+                        bst_clock_out = TimeUtils.convert_to_bst(entry.clock_out)
+                        st.markdown(bst_clock_out.strftime('%H:%M'))
+                    else:
+                        st.markdown('In Progress')
                 with col4:
                     st.markdown(rate_display)
                 with col5:

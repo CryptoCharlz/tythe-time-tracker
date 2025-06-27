@@ -7,6 +7,7 @@ from typing import List
 
 from ...core.services import TimeTrackingService
 from ...core.models import TimeEntry
+from ...utils.time_utils import TimeUtils
 from export_functions import split_shift_by_rate
 
 
@@ -29,10 +30,14 @@ def format_timesheet_data(entries: List[TimeEntry]) -> List[dict]:
         else:
             rate_display = f"Standard ({split['Standard']}h)"
         
+        # Convert UTC times to BST for display
+        bst_clock_in = TimeUtils.convert_to_bst(entry.clock_in)
+        bst_clock_out = TimeUtils.convert_to_bst(entry.clock_out) if entry.clock_out else None
+        
         timesheet_data.append({
-            "Date": entry.clock_in.strftime('%Y-%m-%d'),
-            "Clock-In": entry.clock_in.strftime('%H:%M:%S'),
-            "Clock-Out": entry.clock_out.strftime('%H:%M:%S') if entry.clock_out else "🟢 Still Open",
+            "Date": bst_clock_in.strftime('%Y-%m-%d'),
+            "Clock-In": bst_clock_in.strftime('%H:%M:%S'),
+            "Clock-Out": bst_clock_out.strftime('%H:%M:%S') if bst_clock_out else "🟢 Still Open",
             "Duration": str(entry.clock_out - entry.clock_in).split('.')[0] if entry.clock_out else "In Progress",
             "Pay Rate": rate_display
         })
